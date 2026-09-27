@@ -1,0 +1,20 @@
+order file : bms_A_order_v1.zip
+entries    : 14  Gerber_TopLayer.GTL, Gerber_BottomLayer.GBL, Gerber_TopSilkscreenLayer.GTO, Gerber_BottomSilkscreenLayer.GBO, Gerber_TopSolderMaskLayer.GTS, Gerber_BottomSolderMaskLayer.GBS, Gerber_TopPasteMaskLayer.GTP, Gerber_BoardOutlineLayer.GKO, Gerber_DocumentLayer.GDL, Drill_PTH_Through.DRL, Drill_NPTH_Through.DRL, Drill_PTH_Through_Via.DRL, FlyingProbeTesting.json, PCB下单必读.txt
+
+[GTS(top mask openings)] Gerber_TopSolderMaskLayer.GTS
+  flash openings=62  stroke prims=0
+  nearest two openings edge gap = 7.26 mil = 0.184 mm
+    A r 18.33x72.58 mil @ (1360.2,1058.0)
+    B r 18.33x72.58 mil @ (1334.6,1058.0)
+  => solder-mask web 0.184 mm  OK (JLC/EDA rule 0.10 mm)
+
+[GBS(bottom mask openings)] Gerber_BottomSolderMaskLayer.GBS
+  flash openings=32  stroke prims=0
+  nearest two openings edge gap = 15.68 mil = 0.398 mm
+    A c 82.74x82.74 mil @ (1346.1,1805.0)
+    B c 82.74x82.74 mil @ (1247.6,1805.0)
+  => solder-mask web 0.398 mm  OK (JLC/EDA rule 0.10 mm)
+
+[annular ring] drills parsed = 0
+
+  drill dia histogram (mil:count): 

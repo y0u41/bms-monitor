@@ -1,0 +1,91 @@
+== bms_bom.xlsx [bms_bom.xlsxxlsx] rows=18 ==
+   No. | Quantity | Comment | Designator | Footprint | Value | Manufacturer Part | Manufacturer | Supplier Part | Supplier
+   1 | 2 | 4.7uF | C1,C5 | C0805 | 4.7uF | CL21A475KAQNNNE | SAMSUNG(三星) | C1779 | LCSC
+   2 | 3 | 100nF | C2,C12,C13 | C0805 | 100nF | CL21B104KCFNNNE | SAMSUNG(三星) | C28233 | LCSC
+   3 | 8 | 1uF | C3,C4,C6,C7,C8,C9,C10,C11 | C0805 | 1uF | CL21B105KBFNNNE | SAMSUNG(三星) | C28323 | LCSC
+   4 | 1 | 470pF | C14 | C0805 | 470pF | CL21C471JBANNNC | SAMSUNG(三星) | C28256 | LCSC
+   5 | 2 | XH2.54-5P | J1,J5 | CONN-TH_5P-P2.54_C9900008095 | XH2.54-5P | C9900017328 | LCSC
+   6 | 2 | KF128-5.08-2P-AA | J2,J3 | CONN-TH_P5.08_KF128-5.08-2P | KF128-5.08-2P-AA | KEFA(科发) | C474952 | LCSC
+   7 | 1 | XH2.54-8P 直插 | J4 | CONN-TH_8P-P2.50-XH2.54-8P | XH2.54-8P 直插 | C9900000730 | LCSC
+   8 | 11 | 100Ω | R1,R2,R3,R4,R5,R6,R7,R9,R10,R15,R16 | R0805 | 100Ω | 0805W8F1000T5E | UNI-ROYAL(厚声) | C17408 | LCSC
+   9 | 1 | 5mΩ | R8 | SIP-4_PBV-R005-F1-0.5 | 5mΩ | PBV-R005-F1-1.0 | Isabellenhuette(伊萨普兰) | C2688848 | LCSC
+   10 | 1 | 10kΩ | R11 | R0805 | 10kΩ | 0805W8F1002T5E | UNI-ROYAL(厚声) | C38522 | LCSC
+   11 | 2 | 1kΩ | R12,R13 | R0805 | 1kΩ | 0805W8F1001T5E | UNI-ROYAL(厚声) | C17513 | LCSC
+   12 | 1 | 499kΩ | R14 | R0805 | 499kΩ | 0805W8F4993T5E | UNI-ROYAL(厚声) | C17721 | LCSC
+   13 | 2 | 4.7kΩ | R17,R18 | R0805 | 4.7kΩ | 0805W8F4701T5E | UNI-ROYAL(厚声) | C17673 | LCSC
+   14 | 1 | 0Ω | R19 | R0805 | 0Ω | 0805W8F0000T5E | UNI-ROYAL(厚声) | C17477 | LCSC
+   15 | 1 | 轻触开关,6*6*6塑头,260G,行程0.25mm,直插 | SW1 | SW-TH_4P-L6.0-W6.0-P4.50-LS6.1 | 轻触开关,6*6*6塑头,260G,行程0.25mm,直插 | C71836 | LCSC
+   16 | 1 | BQ7692003PWR | U1 | TSSOP-20_L6.5-W4.4-P0.65-LS6.4-BL | BQ7692003PWR | TI(德州仪器) | C601650 | LCSC
+   
+
+== test points ==
+TP pads = 10   nets with a TP = 10 / 34
+   PAD10_TP   net=AFE_ALERT  C 1.14mm x 1.14mm (0.029 in) @ (1450.0,1000.0)
+   PAD1_TP    net=CELL1      C 1.14mm x 1.14mm (0.029 in) @ (300.0,760.0)
+   PAD2_TP    net=CELL2      C 1.14mm x 1.14mm (0.029 in) @ (400.0,840.0)
+   PAD3_TP    net=CELL3      C 1.14mm x 1.14mm (0.029 in) @ (500.0,920.0)
+   PAD4_TP    net=PACK_P     C 1.14mm x 1.14mm (0.029 in) @ (600.0,1000.0)
+   PAD5_TP    net=PACK_N     C 1.14mm x 1.14mm (0.029 in) @ (900.0,180.0)
+   PAD6_TP    net=RSNS_SP    C 1.14mm x 1.14mm (0.029 in) @ (180.0,400.0)
+   PAD7_TP    net=SRP_F      C 1.14mm x 1.14mm (0.029 in) @ (1710.6,600.0)
+   PAD8_TP    net=SRN_F      C 1.14mm x 1.14mm (0.029 in) @ (2010.6,600.0)
+   PAD9_TP    net=REGOUT     C 1.14mm x 1.14mm (0.029 in) @ (1338.0,1300.0)
+nets WITHOUT any test point: AFE_BOOT, AFE_SCL, AFE_SDA, AFE_VBAT, BOOT_SW, CAP1, CHG, DSG, EN_CHG, EN_DSG, NET_1, NET_2, NET_3, RSNS_SN, SW_N, TS1, V3V3_MCU, VC0, VC1, VC2, VC3, VC4, VC5, VSS
+
+== 去耦/滤波电容到 U1 引脚的距离（mm，边缘间隙按中心距-盘半径近似） ==
+   U1 U1_1   DSG         最近电容 C5    中心距 4.878 mm
+   U1 U1_2   CHG         最近电容 C5    中心距 4.902 mm
+   U1 U1_3   VSS         最近电容 C5    中心距 4.949 mm
+   U1 U1_4   AFE_SDA     最近电容 C5    中心距 4.880 mm
+   U1 U1_5   AFE_SCL     最近电容 C5    中心距 4.897 mm
+   U1 U1_6   TS1         最近电容 C3    中心距 4.910 mm
+   U1 U1_7   CAP1        最近电容 C3    中心距 4.877 mm
+   U1 U1_8   REGOUT      最近电容 C3    中心距 4.929 mm
+   U1 U1_9   AFE_VBAT    最近电容 C3    中心距 4.917 mm
+   U1 U1_10  AFE_VBAT    最近电容 C3    中心距 4.876 mm
+   U1 U1_11  NET_3       最近电容 C9    中心距 5.441 mm
+   U1 U1_12  VC5         最近电容 C9    中心距 5.386 mm
+   U1 U1_13  VC4         最近电容 C9    中心距 5.409 mm
+   U1 U1_14  VC3         最近电容 C8    中心距 5.409 mm
+   U1 U1_15  VC2         最近电容 C8    中心距 5.386 mm
+   U1 U1_16  VC1         最近电容 C8    中心距 5.440 mm
+   U1 U1_17  VC0         最近电容 C8    中心距 5.414 mm
+   U1 U1_18  SRP_F       最近电容 C8    中心距 5.385 mm
+   U1 U1_19  SRN_F       最近电容 C8    中心距 5.434 mm
+   U1 U1_20  AFE_ALERT   最近电容 C7    中心距 5.392 mm
+
+== 关键网络走线密度（引脚数） ==
+   VSS        44 pads
+   V3V3_MCU   16 pads
+   RSNS_SP    15 pads
+   PACK_N     13 pads
+   AFE_VBAT   12 pads
+   SW_N       12 pads
+   AFE_ALERT  11 pads
+   BOOT_SW    10 pads
+   CELL3      9 pads
+   PACK_P     9 pads
+   NET_1      8 pads
+   NET_2      8 pads
+   EN_CHG     8 pads
+   EN_DSG     8 pads
+   TS1        8 pads
+   SRP_F      7 pads
+   SRN_F      7 pads
+   CELL1      7 pads
+   CELL2      7 pads
+   VC0        6 pads
+   VC1        6 pads
+   VC2        6 pads
+   VC3        6 pads
+   VC4        6 pads
+   VC5        6 pads
+   AFE_BOOT   6 pads
+   DSG        6 pads
+   CHG        6 pads
+   RSNS_SN    6 pads
+   REGOUT     5 pads
+   CAP1       4 pads
+   AFE_SDA    4 pads
+   AFE_SCL    4 pads
+   NET_3      1 pads

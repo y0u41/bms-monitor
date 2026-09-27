@@ -1,0 +1,49 @@
+pins=297  components=193
+NOTE FlyingProbe HOLE_SIZE is in MIL (1.1mm->43.31), pad sizes in MIL too.
+drills: PTH=91  NPTH=2  VIA-file=61  (via subset of PTH: True)
+pins with a hole in the probe file: 120   (SMD=177 / TH=120)
+  hole-size histogram (mm x mm):count -> (43.308, 43.308):32, (47.244, 47.244):56, (57.086, 66.929):8, (57.086, 90.551):8, (62.992, 62.992):16
+
+== A. every PTH drill must land on a pad (or a via) ==
+  non-via PTH drills = 30
+  drills with no pad / wrong size: 4
+    dia 57.086 mm @ (995.5, 180.0) mil  nearest pad within 40mil: R8_2 net=RSNS_SP d=4.9
+    dia 57.086 mm @ (1294.7, 180.0) mil  nearest pad within 40mil: R8_3 net=RSNS_SN d=4.9
+    dia 57.086 mm @ (782.9, 180.0) mil  nearest pad within 40mil: R8_1 net=PACK_N d=16.7
+    dia 57.086 mm @ (1483.7, 180.0) mil  nearest pad within 40mil: R8_4 net=SW_N d=16.7
+
+== B. every pad that needs a hole must be drilled ==
+  TH pads with no drill within 1 mil: 16
+    R8_1 net=PACK_N @ (799.6,180.0) hole 57.09 mil
+    R8_1 net=PACK_N @ (799.6,180.0) hole 57.09 mil
+    R8_2 net=RSNS_SP @ (1000.4,180.0) hole 57.09 mil
+    R8_2 net=RSNS_SP @ (1000.4,180.0) hole 57.09 mil
+    R8_3 net=RSNS_SN @ (1299.6,180.0) hole 57.09 mil
+    R8_3 net=RSNS_SN @ (1299.6,180.0) hole 57.09 mil
+    R8_4 net=SW_N @ (1500.4,180.0) hole 57.09 mil
+    R8_4 net=SW_N @ (1500.4,180.0) hole 57.09 mil
+    PAD75_2 net=RSNS_SP @ (1000.4,180.0) hole 57.09 mil
+    PAD75_2 net=RSNS_SP @ (1000.4,180.0) hole 57.09 mil
+    PAD76_3 net=RSNS_SN @ (1299.6,180.0) hole 57.09 mil
+    PAD76_3 net=RSNS_SN @ (1299.6,180.0) hole 57.09 mil
+    PAD77_1 net=PACK_N @ (799.6,180.0) hole 57.09 mil
+    PAD77_1 net=PACK_N @ (799.6,180.0) hole 57.09 mil
+    PAD78_4 net=SW_N @ (1500.4,180.0) hole 57.09 mil
+    PAD78_4 net=SW_N @ (1500.4,180.0) hole 57.09 mil
+
+== C. board outline (GKO) ==
+  primitives: strokes=4 regions=0 flashes=0
+  bbox = 2556.0 x 1780.0 mil = 64.9224 x 45.2120 mm
+  origin = (100.0, 100.0) mil
+
+== D. NPTH / mounting holes ==
+  hole dia 3.200 mm @ (2555.0, 200.0) mil ; distance to outline = 100.0 mil = 2.540 mm
+     nearest pad +612.5 mil: C13_2 net=VSS R 55.5x53.1 mil @ (2010.6,480.6)
+     nearest pad +612.5 mil: PAD35_2 net=VSS R 55.5x53.1 mil @ (2010.6,480.6)
+     nearest pad +640.6 mil: R10_1 net=RSNS_SN R 44.6x54.2 mil @ (2089.4,640.0)
+     nearest pad +640.6 mil: PAD82_1 net=RSNS_SN R 44.6x54.2 mil @ (2089.4,640.0)
+  hole dia 3.200 mm @ (2555.0, 1770.0) mil ; distance to outline = 101.0 mil = 2.565 mm
+     nearest pad +139.0 mil: SW1_2 net=BOOT_SW C 70.9x70.9 mil @ (2420.1,1803.6)
+     nearest pad +139.0 mil: SW1_2 net=BOOT_SW C 70.9x70.9 mil @ (2420.1,1803.6)
+     nearest pad +139.0 mil: PAD102_2 net=BOOT_SW C 70.9x70.9 mil @ (2420.1,1803.6)
+     nearest pad +139.0 mil: PAD102_2 net=BOOT_SW C 70.9x70.9 mil @ (2420.1,1803.6)

@@ -1,0 +1,66 @@
+ESP8266 模块 AT 固件烧录说明（BMS 项目配套）
+================================================================
+
+一、模块与固件
+  芯片    : ESP8266EX，Flash 4MB，MAC ec:fa:bc:ca:af:2b
+  固件    : 乐鑫 ESP-WROOM-02-AT-V2.2.2.0（AT v2.2.2.0 / SDK v3.4）
+  来源    : https://dl.espressif.com/esp-at/firmwares/esp8266/ESP-WROOM-02-AT-V2.2.2.0.zip
+  本地包  : D:\正点原子\软件资料\ESP-WROOM-02-AT-V2.2.2.0\
+
+二、为什么必须改 factory_param
+  该出厂固件把 AT 串口配在 GPIO15(TX)/GPIO13(RX)，而本模块的 CH340 和接到
+  精英版 V2 的杜邦线都走标准 GPIO1(TX)/GPIO3(RX)。现象是：上电能看到 ROM
+  启动日志（ROM 固定用 GPIO1/3，波特率 74880），但应用一启动就把串口切到
+  GPIO15/13，于是 GPIO1/3 上彻底静默，AT 永远无应答，屏幕上显示
+  "WiFi : no module / no resp"。
+
+三、修正内容（factory_param_gpio1_3.bin）
+  相对出厂 factory_param.bin 只改了 6 个字节，其余（含 magic、平台名
+  PLATFORM_ESP8266、模块名 WROOM-02）完全未改动：
+      偏移 16  uart_tx_pin       15  ->  1      (AT 出，接 PB11)
+      偏移 17  uart_rx_pin       13  ->  3      (AT 入，接 PB10)
+      偏移 18  uart_cts_pin       3  -> -1      (0xFF，不用硬件流控)
+      偏移 19  uart_rts_pin       1  -> -1
+      偏移 20  tx_control_pin     5  -> -1
+      偏移 21  rx_control_pin    -1  -> -1
+  依据：乐鑫官方模块表里只有 WROOM-02-N 才是 TX:1 RX:3，WROOM-02 默认
+  TX:15 RX:13；改法即官方文档 "How To Create Factory Parameter Bin" 的
+  方法三（直接用二进制工具按偏移改）。
+
+四、烧录步骤（Windows + esptool）
+  1) 安装工具：  python -m pip install esptool
+  2) 模块 USB 接电脑，进入下载模式：GPIO0 拉低（多数 CH340 底板有 PROG
+     跳线帽或按键）。实测 esptool 的 DTR/RTS 自动复位可以自动进入，无需手动。
+  3) 先确认芯片与容量：  esptool --port COM6 --chip esp8266 flash-id
+     应显示 ESP8266EX、Detected flash size: 4MB
+  4) 整片烧 AT 固件（约 40 秒，4MB 芯片按官方 2MB 布局烧）：
+       esptool --port COM6 --chip esp8266 --baud 460800 write-flash ^
+         -fm dio -ff 80m -fs 2MB -e 0x0 factory_WROOM-02.bin
+     factory_WROOM-02.bin 取自固件包的 factory\ 目录，它是各分区按
+     download.config 拼好的完整镜像，单独烧这一个文件即可。
+  5) 补烧修正后的引脚配置（只写 4KB，不擦除其它区域）：
+       esptool --port COM6 --chip esp8266 --baud 460800 write-flash ^
+         0xF1000 factory_param_gpio1_3.bin
+  6) 拔掉 GPIO0 的跳线、重新上电。
+
+五、烧完自检（串口助手 115200）
+  AT          -> OK
+  AT+GMR      -> AT version:2.2.2.0 ... Bin version:2.2.2(WROOM-02)
+  AT+CWMODE?  -> 出厂默认 +CWMODE:2（AP 模式），工程里会自己设成 1
+  若想恢复出厂引脚：把原版 customized_partitions\factory_param.bin 再烧回
+  0xF1000 即可。
+
+六、与 STM32F103ZET6 精英版 V2 的接线
+  模块 TXD  ->  PB11（USART3_RX）
+  模块 RXD  ->  PB10（USART3_TX）
+  GND 共地；VCC 按模块丝印（带 CH340 的板子一般吃 5V，只标 3V3 的接 3.3V）
+  两个坑：
+    1) 不要再同时把模块自己的 USB 插到电脑——它的 CH340 会和 PB10 抢线。
+       若担心 CH340 未上电影响启动，可把它插到充电器（只供电不接数据）。
+    2) 从板子 ATK-MODULE 座子接线时，座子丝印 TXD/RXD 是"模块侧"标注，
+       要直连；从 PB10/PB11 排针接线时要交叉（PB10 是 STM32 的 TX）。
+
+七、工程侧对应实现
+  BSP/ESP8266/esp8266.c  esp8266_scan_baud() 会依次试
+  115200/9600/74880/57600/38400/19200/4800，命中即自动改用该波特率，
+  所以本模块即便不是 115200 也无需改代码。

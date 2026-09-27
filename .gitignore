@@ -1,0 +1,35 @@
+# ── 凭据：永不入库（AGENTS §4 / 附录C C-37）────────────────────────
+firmware/User/App/app_config_local.h
+
+# ── Keil / MDK 构建中间产物 ────────────────────────────────────────
+firmware/Output/*.o
+firmware/Output/*.d
+firmware/Output/*.lnp
+firmware/Output/*.dep
+firmware/Output/*.iex
+firmware/Output/*.axf
+firmware/Output/*.sct
+firmware/Output/*.htm
+firmware/Output/*.map
+firmware/Output/*.hex
+# ★ 例外：带日期的取证副本必须入库（验收纪律第 21 条：可达性证据会被下一次构建覆盖）
+!firmware/Output/bms_20*.hex
+!firmware/Output/map_20*.map
+firmware/Projects/MDK-ARM/b.log
+firmware/Projects/MDK-ARM/Events/
+firmware/Projects/MDK-ARM/Listings/
+firmware/Projects/MDK-ARM/Objects/
+firmware/Projects/MDK-ARM/RTE/**/*.bak
+*.uvguix.*
+
+# ── 编辑器 / Office 锁文件与临时件 ────────────────────────────────
+~$*
+*.tmp
+*.bak
+._*
+
+# ── 工具依赖 ──────────────────────────────────────────────────────
+node_modules/
+
+# ── 本轮脚本残留 ──────────────────────────────────────────────────
+_docchk.txt

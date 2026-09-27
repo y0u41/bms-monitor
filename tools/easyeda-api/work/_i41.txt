@@ -1,0 +1,88 @@
+vias=61  tracks=202  (units: mil)
+
+== via count per net ==
+   VSS        22
+   PACK_N     9
+   SW_N       9
+   TS1        4
+   AFE_I2C_SDA 2
+   AFE_SDA    2
+   CAP1       2
+   CHG        2
+   DSG        2
+   V3V3_MCU   2
+   REGOUT     2
+   AFE_ALERT  1
+   EN_CHG     1
+   EN_DSG     1
+via (hole,dia) mil -> count: (12, 24):61
+  = 0.305/0.610 mm x61
+
+== 换层信号过孔旁是否有就近地过孔（回流路径） ==
+   AFE_SDA    via (1284,1300)  最近地孔 34 mil = 0.865 mm  (VSS)
+   TS1        via (1554,1494)  最近地孔 72 mil = 1.831 mm  (VSS)
+   REGOUT     via (1332,1330)  最近地孔 88 mil = 2.236 mm  (VSS)
+   CAP1       via (1240,1174)  最近地孔 94 mil = 2.381 mm  (VSS)
+   AFE_SDA    via (1284,1004)  最近地孔 114 mil = 2.883 mm  (VSS)
+   AFE_ALERT  via (1360,1000)  最近地孔 124 mil = 3.142 mm  (VSS)
+   TS1        via (1558,1180)  最近地孔 132 mil = 3.355 mm  (VSS)
+   CAP1       via (1206,1004)  最近地孔 153 mil = 3.880 mm  (VSS)
+   TS1        via (1742,1494)  最近地孔 153 mil = 3.891 mm  (VSS)
+   TS1        via (1234,968)  最近地孔 166 mil = 4.204 mm  (VSS)
+   REGOUT     via (1172,1000)  最近地孔 181 mil = 4.586 mm  (VSS)
+   sensitive layer-changing vias = 11
+
+== 每个网络用到的线宽（mil / mm） ==
+   VC5        n=  4  12mil=0.305mm
+   VC4        n=  4  12mil=0.305mm
+   VC3        n=  4  12mil=0.305mm
+   VC2        n=  4  12mil=0.305mm
+   VC1        n=  4  12mil=0.305mm
+   VC0        n=  4  12mil=0.305mm
+   CELL1      n=  4  12mil=0.305mm
+   CELL2      n=  4  12mil=0.305mm
+   CELL3      n=  6  12mil=0.305mm
+   PACK_P     n=  9  12mil=0.305mm
+   RSNS_SP    n= 20  12mil=0.305mm
+   SRP_F      n=  5  12mil=0.305mm
+   SRN_F      n=  5  12mil=0.305mm
+   AFE_ALERT  n=  9  12mil=0.305mm
+   AFE_BOOT   n=  3  12mil=0.305mm
+   AFE_I2C_SCL n=  7  12mil=0.305mm
+   AFE_I2C_SDA n=  3  12mil=0.305mm
+   AFE_SDA    n=  4  12mil=0.305mm
+   AFE_VBAT   n=  9  12mil=0.305mm
+   BOOT_SW    n=  5  12mil=0.305mm
+   CAP1       n=  5  12mil=0.305mm
+   CHG        n=  6  12mil=0.305mm
+   DSG        n=  5  12mil=0.305mm
+   EN_CHG     n=  4  12mil=0.305mm
+   EN_DSG     n=  4  12mil=0.305mm
+   REGOUT     n=  6  12mil=0.305mm
+   RSNS_SN    n=  3  12mil=0.305mm
+   TS1        n= 14  12mil=0.305mm
+   V3V3_MCU   n= 11  12mil=0.305mm
+   AFE_SCL    n=  3  12mil=0.305mm
+   VSS        n= 12  8mil=0.203mm, 12mil=0.305mm
+   PACK_N     n=  4  12mil=0.305mm
+   SW_N       n=  4  12mil=0.305mm
+              n=  4  10mil=0.254mm
+min track width = 8 mil = 0.203 mm ; widths used = [8, 10, 12]
+
+== 功率网络（PACK_N / SW_N / RSNS_*）走线明细 ==
+   PACK_N : 4 段, 最宽 12 mil, 总长 10.2 mm
+   SW_N : 4 段, 最宽 12 mil, 总长 10.2 mm
+   RSNS_SP : 20 段, 最宽 12 mil, 总长 125.1 mm
+   RSNS_SN : 3 段, 最宽 12 mil, 总长 31.7 mm
+
+!! Gerber_TopLayer.GTL has a flash at the M3 hole (2555,200): C 126.00 x 126.00 mil (3.200 x 3.200 mm), hole = 126.0 mil
+
+!! Gerber_TopLayer.GTL has a flash at the M3 hole (2555,1770): C 126.00 x 126.00 mil (3.200 x 3.200 mm), hole = 126.0 mil
+
+!! Gerber_BottomLayer.GBL has a flash at the M3 hole (2555,200): C 126.00 x 126.00 mil (3.200 x 3.200 mm), hole = 126.0 mil
+
+!! Gerber_BottomLayer.GBL has a flash at the M3 hole (2555,1770): C 126.00 x 126.00 mil (3.200 x 3.200 mm), hole = 126.0 mil
+
+!! Gerber_TopSolderMaskLayer.GTS has a flash at the M3 hole (2555,200): C 130.00 x 130.00 mil (3.302 x 3.302 mm), hole = 126.0 mil
+
+!! Gerber_TopSolderMaskLayer.GTS has a flash at the M3 hole (2555,1770): C 130.00 x 130.00 mil (3.302 x 3.302 mm), hole = 126.0 mil

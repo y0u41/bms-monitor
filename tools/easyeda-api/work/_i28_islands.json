@@ -1,0 +1,65 @@
+{
+ "GTL/28283": [
+  "<none>",
+  "AFE_ALERT",
+  "AFE_BOOT",
+  "AFE_I2C_SCL",
+  "AFE_I2C_SDA",
+  "AFE_SDA",
+  "AFE_VBAT",
+  "BOOT_SW",
+  "CAP1",
+  "CELL1",
+  "CELL2",
+  "CELL3",
+  "CHG",
+  "DSG",
+  "EN_CHG",
+  "EN_DSG",
+  "PACK_P",
+  "REGOUT",
+  "RSNS_SP",
+  "TS1",
+  "V3V3_MCU",
+  "VSS"
+ ],
+ "GTL/5205": [
+  "VC0"
+ ],
+ "GTL/5202": [
+  "VC1"
+ ],
+ "GTL/5199": [
+  "VC2"
+ ],
+ "GTL/5196": [
+  "VC3"
+ ],
+ "GTL/5193": [
+  "VC4"
+ ],
+ "GTL/5190": [
+  "VC5"
+ ],
+ "GTL/7307": [
+  "SRP_F"
+ ],
+ "GTL/7311": [
+  "SRN_F"
+ ],
+ "GTL/1": [
+  "PACK_N"
+ ],
+ "GTL/5": [
+  "SW_N"
+ ],
+ "GTL/243": [
+  "RSNS_SN"
+ ],
+ "GTL/19577": [
+  "AFE_SCL"
+ ],
+ "GTL/274": [
+  "<none>"
+ ]
+}

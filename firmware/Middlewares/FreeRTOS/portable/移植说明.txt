@@ -1,0 +1,14 @@
+FreeRTOS Kernel V10.4.6  port 移植说明
+========================================
+内核源码来源：正点原子《FreeRTOS 例程》扩展例程（实验6-2 静态方法）
+             因该套例程使用 AC5（ARMCC V5.06），其自带的
+             portable/RVDS/ARM_CM3 端口在 AC6（ARMCLANG V6.24）下无法编译
+             （armcc 专有关键字 __forceinline 与 __asm 函数语法）。
+
+本工程改用 GCC 端口（armclang 兼容）：
+  portable/GCC/ARM_CM3/port.c
+  portable/GCC/ARM_CM3/portmacro.h
+来源：https://github.com/FreeRTOS/FreeRTOS-Kernel  tag V10.4.6
+      portable/GCC/ARM_CM3/          （与内核版本严格一致）
+
+验证方式：Keil MDK + AC6 编译 0 Error / 0 Warning；上板跑 5 任务心跳。
