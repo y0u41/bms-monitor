@@ -29,7 +29,15 @@
 /* 必须 ≥ configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY(=5) 才允许调 FreeRTOS 的
  * ...FromISR() API；本文件底部有编译期断言，写小了编译不过。 */
 #define APP_IRQ_PRIO_AFE_ALERT        5u      /* PD13 → EXTI15_10：AFE 保护动作，D8 启用 */
-#define APP_IRQ_PRIO_UART             6u      /* USART1(调试/ESP8266) / USART3(RS485-Modbus) */
+/* ⚠️ ★ 2026-09-28 就地更正：本行原写 "USART1(调试/ESP8266) / **USART3(RS485-Modbus)**" —— 错。
+ *   真值（`Tech_Design.md` §2，引脚口径唯一权威）：**USART1 = 调试口**、
+ *   **USART3 = ESP8266**（`esp8266.c` 的 HAL 回调按该实例守卫）、
+ *   **USART2 = 板载 RS485 / Modbus**（PA2/PA3 + PD7 方向脚）。详见 `app_nvic.c` 里的更正说明。 */
+#define APP_IRQ_PRIO_UART             6u      /* USART1(调试) / USART2(RS485·Modbus) / USART3(ESP8266)
+                                               *   ＋ RS485 的两个 DMA 通道（DMA1_CH6/CH7）
+                                               *   ⚠️ RS485 那三个 ISR **不调任何 FromISR API**
+                                               *      （`rs485.h` 第 4 条）⇒ 对 5 这个下限无约束，
+                                               *      同档只是为了让"同一类东西只有一个数字"。 */
 
 /**
  * @brief       钉分组 + 覆盖全部本工程中断的优先级（含为 D8 预留的 ALERT）

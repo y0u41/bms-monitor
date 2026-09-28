@@ -33,3 +33,13 @@ node_modules/
 
 # ── 本轮脚本残留 ──────────────────────────────────────────────────
 _docchk.txt
+
+# ── 调试器/脚本的临时产物（滚动作业文件，每次跑都变；★ 证据类 readout 不在其列）──
+# 口径：forensic_*.txt / lsi_*.txt / lsi_addr.env 是**具名证据**（V4/F3b 的原始读数）⇒ 继续入库；
+#      下面这些是"同一个名字每跑一次就换内容"的中间产物 ⇒ 入库只会制造无意义 diff。
+firmware/_ocd_*.out
+firmware/_ocd_rd.tcl
+firmware/_flashcmp.py
+firmware/_hex_span.py
+firmware/_tail.py
+firmware/bms_log_flash.bin

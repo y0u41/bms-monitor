@@ -26,6 +26,8 @@
 #include "./App/app_acq.h"
 #include "./App/app_protect.h"      /* ★ D5：唯一喂狗点/状态属主所在（本文件只注册钩子，不碰 IWDG） */
 #include "./App/app_bus.h"          /* ★ D5：传感总线互斥（M3） */
+#include "./App/app_modbus.h"       /* ★ Modbus RTU 从机（D9 提前，见其文件头） */
+#include "./BSP/RS485/rs485.h"      /* ★ 板载 RS485 物理层（USART2 + PD7） */
 #include "./App/app_tasks.h"        /* ★ D5：app_tasks_create() + 服务回调里补心跳 */
 #include "FreeRTOS.h"
 #include "task.h"                   /* vTaskStartScheduler() / taskDISABLE_INTERRUPTS() */
@@ -35,6 +37,7 @@
 #include "./BSP/SHT30/sht30.h"
 #include "./BSP/SOFTI2C/softi2c.h"
 #include "./BSP/AT24CXX/at24cxx.h"
+#include "./BSP/INA226/ina226.h"    /* ★ D10 前置：驱动本体 + 上电自检（⛔ 本文件不把它接进采集通路） */
 #include "./BSP/LSENS/lsens.h"
 #include "./BSP/ESP8266/esp8266.h"
 #include "./BSP/KEY/key.h"
@@ -183,7 +186,6 @@ static void app_periodic(void)
     app_data_fake_step(now);      /* ⏳ 逐通道交接中：环境通道已由 app_acq 写真数据（D3），其余仍是假值 */
     app_acq_step(now);            /* 采集层：SHT30 两阶段读 → 快照的环境温度通道 */
     app_ui_task(now);             /* 按键扫描 + 200ms 限流重绘 */
-
     alarm_task();
 }
 
@@ -638,6 +640,49 @@ void app_main(void)
         }
     }
 
+    /* ---------------- INA226 上电自检（D10 第 ④ 条：把"工程里还没有这个文件"补上） ----------------
+     * ★ 它同时是 §2.2 A3 那条"三从机共总线验证"的**代码半**：
+     *   `EEPROM:` 那行证明 24C02 在、`TH   :` 那行证明 SHT30 在、本行证明 INA226 在，
+     *   三行都出现 = 0x40 / 0x44 / 0x50 三颗器件在同一条 `g_bus_sens` 上各自应答。
+     * ⚠️ **两条边界必须跟着打印走，否则这一行会被读成"电流通道已经验收"**：
+     *   ① 本步**只证明"寄存器写得进、读得回、两条形态自洽"**，⛔ 不证明电流方向符号
+     *      与量值（那要台架与万用表，D10 判据①②）；
+     *   ② 它**不接进采集通路** ⇒ `curr_10ma` / `pack_10mv_aux` / `tick_ms_curr` 此刻
+     *      仍由假数据源填（逐通道交接按 C-97 F3 与实物到位的同一天做）。 */
+    {
+        uint8_t  ei = ina226_selftest();
+        uint16_t mfg = 0x0000u;
+        uint16_t die = 0x0000u;
+        int16_t  i_sh = 0;
+        int16_t  i_cal = 0;
+        uint16_t vb = 0;
+
+        if (ei == INA226_OK)
+        {
+            (void)ina226_id_read(&mfg, &die);
+            ina226_last_read(&i_sh, &i_cal, &vb);
+
+            /* 两个电流都是 10mA 单位 ⇒ 打印成 A（`x/100` 与 `|x|%100`，⛔ 不用浮点）。
+             * ★ 括号里那个数**不是装饰**：它是本驱动的第二形态（电流寄存器 / 依赖 CAL）。
+             *   两个数一致 ⇒ "CAL 与分流器电压两条通路自洽"这条判据当场成立；
+             *   不一致 ⇒ 用 20mA 容差判 `ERR_XCHECK`（见 `ina226.h` 的返回码表）。
+             * ⚠️ MFG/DIE 只作打印**参照**：它们的期望值本轮没有取到手册原文，
+             *   所以不参与任何判据，D10 首次上机以实读值为基线（见 `ina226.h` 文件头）。 */
+            printf("INA226: @0x40 ok  mfg=%04X die=%04X  I=%d.%02dA(cal %d.%02dA) V=%u.%02uV  xchk_fail=%u\r\n",
+                   (unsigned int)mfg, (unsigned int)die,
+                   (int)(i_sh / 100), (int)((i_sh < 0) ? (-i_sh) % 100 : i_sh % 100),
+                   (int)(i_cal / 100), (int)((i_cal < 0) ? (-i_cal) % 100 : i_cal % 100),
+                   (unsigned int)(vb / 100u), (unsigned int)(vb % 100u),
+                   (unsigned int)ina226_xcheck_fail_count());
+        }
+        else
+        {
+            /* ⚠️ 读数 1~6 的含义见 `ina226.h`；其中 3 = **没拿到总线锁**（事务没发生），
+             *   ⛔ 与 1（器件不在位）不是同一件事，别照着"检查接线"去查。 */
+            printf("INA226: fail=%u (1=NACK:check A0/A1@0x40 & PB6/PB7; 3=bus lock)\r\n", ei);
+        }
+    }
+
     /* ---------------- 温湿度传感器自动探测 ---------------- */
     g_th_type = th_detect();
 
@@ -672,6 +717,22 @@ void app_main(void)
         app_log_init();                     /* 纯读扫描全区, 定位写指针 / 统计有效条数 / 报出损坏条数 */
         app_log_boot_event();               /* ★ 第一条永远是"这次为什么复位" */
 
+        /* ★ C-110：把上一次"卡死 → 咬狗"的现场从备份域读回来补投一条 `EV_TASK_STALLED`。
+         *   位置是钉死的：必须在 `app_log_boot_event()` 之后（日志读成 复位原因 → 开机 → 谁卡的）、
+         *   在调度器之前（那时还没有并发）、在任何动备份域的动作之前。
+         *   出参只为了打印这一行 —— 携带通路的"第二形态"（§2.3 h) 那条债的同族）。 */
+        {
+            uint8_t  cm;
+            uint16_t ca;
+            uint16_t cd;
+
+            if (app_protect_stall_carry_report(&cm, &ca, &cd) != 0u)
+            {
+                printf("STALL: carried from before reset  mask=0x%02X age=%ums dl=%ums\r\n",
+                       cm, (unsigned int)ca, (unsigned int)cd);
+            }
+        }
+
         /* 报警一开始就通过这个回调把快照存进去(app_alarm 与 app_log 之间没有直接依赖) */
         alarm_set_log_hook(app_log_env_event);
 
@@ -702,6 +763,7 @@ void app_main(void)
      *      事务看到的是"钩子已注册、句柄还是 NULL"，`app_bus.c` 的判空会把它当成
      *      "单线程期放行" —— 于是锁**静默不存在**（本项目最坏的一类缺陷：不报错、只是没兜住）。
      *   ② `app_protect_wdg_start()` —— 狗要在调度器之前有效：连启动过程卡住都要被咬。
+     *   ②' `app_protect_actuator_start()` —— 三路使能钉在断开 + 引脚模式自检（D6，见下面那一段）。
      *   ③ `app_tasks_create()` → ④ `vTaskStartScheduler()`。
      * ⛔ 这两步之前不得出现任何"只有任务上下文才能安全调用"的东西（例如等信号量）。
      * ★★ 又收一层（C-107）：**从这里往上的一切都不许依赖 `HAL_GetTick()` 计时**。
@@ -716,6 +778,42 @@ void app_main(void)
     }
 
     app_protect_wdg_start();
+
+    /* ★ D6 软件侧前置（2026-09-28）：执行器层紧接着狗启动。
+     *   顺序 = ②' 在 ② 之后、③ 之前，两条理由各自独立成立：
+     *     · 狗要先活着，才能咬住"配执行器 GPIO 时卡住"这一段（它内部有有界的回读校验）；
+     *     · 执行器要在**任何任务能跑起来之前**已经钉在断开态，否则调度器里先动它的可能是别人。
+     *   ⚠️ 外部 10K 下拉（S5）本来就是"MCU 死了也断着"的保证，本步不产生安全性、
+     *   只把"引脚现在真的是低"变成一条**被观测过**的事实（C-106 的同一种修法：回读出口）。 */
+    app_protect_actuator_start();
+
+    /* ---------------- ★ Modbus RTU 从机（板载 RS485：USART2 + PD7 方向脚） ----------------
+     * ★ 位置是钉死的：**在 `app_nvic_init()` 之后**（NVIC 分组/优先级已在 `main.c` 收口）、
+     *   在 `app_protect_wdg_start()` 之后（自检里有有界等待，卡住必须被狗咬而不是静默）、
+     *   在 `vTaskStartScheduler()` 之前（§4.3 的启动序列）。
+     * ⚠️ **两条边界必须跟着这一行打印走**（`app_modbus.h` 文件头）：
+     *   ① 本轮是把 D9 的从机提前交付，"能应答"这一半到位 ⇒ **⛔ 不等于 `附录C` C-100 的
+     *      M0 已完成**（"应答方是谁"要等 RS485 主机与第三方工具接上才能证）；
+     *   ② 从机地址/波特率的写**只存在于 RAM** ⇒ 掉电回默认（参数区还没建，登记为债务）。 */
+    {
+        uint8_t e_init = app_modbus_init(APP_MB_BAUD_DEFAULT);
+        uint8_t e_dma  = 0xFFu;
+        uint8_t e_pro  = 0xFFu;
+
+        if (e_init == 0u)
+        {
+            /* ① 物理层真机判据：TX 的 DMA 请求映射到底通不通（挂错通道时它超时）。 */
+            e_dma = rs485_selftest();
+            /* ② 协议级判据：CRC16 已知答案 + 一条合成请求的响应结构（不需要任何外部设备）。 */
+            e_pro = app_modbus_selftest();
+        }
+
+        printf("485  : USART2 %u 8N1 addr=%u  init=%u dma=%u crc=%u %s\r\n",
+               (unsigned int)APP_MB_BAUD_DEFAULT,
+               (unsigned int)APP_MB_ADDR_DEFAULT,
+               (unsigned int)e_init, (unsigned int)e_dma, (unsigned int)e_pro,
+               ((e_init == 0u) && (e_dma == 0u) && (e_pro == 0u)) ? "ok" : "FAIL");
+    }
 
     /* ★ 按键的两个出口在这里接线（`Build.md` §2 D5 判据⑥b）：
      *   长按 5s → `app_protect`（S11 锁定的唯一解除入口，⛔ 界面不得自己清 request_latch）；
@@ -753,6 +851,7 @@ void app_main(void)
  * @note        ⏳ 本函数连同 `APP_PERIOD_LEGACY_MS` 与 `task_legacy()` 在 D15 清空时一起删除。
  * @note        ⛔ 不得改动这里的逻辑顺序；要交接某个通道就往 `app_tasks.c` 的对应任务里搬。
  */
+
 void app_main_service(void)
 {
     uint32_t now;                           /* 本轮时刻（HAL_GetTick 口径，与写者同钟）*/
@@ -760,7 +859,7 @@ void app_main_service(void)
     now = HAL_GetTick();
 
     /* ========== 20ms 任务: 按键 + 报警(含 KEY0 消音) + 报警闪烁 + 联网状态机 ========== */
-    app_periodic();
+    app_periodic();                         /* 按键 + 采集 + 界面 + 报警，见 `app_periodic()` */
     /* ★ D5 §8.4 M4：这里原来的 `IWDG_FEED()` 已删 —— 全工程唯一喂狗点在
      *   `app_protect.c` 的**条件**喂狗（判活口径见 `app_tasks.c` 的 C-34 注释）。 */
 

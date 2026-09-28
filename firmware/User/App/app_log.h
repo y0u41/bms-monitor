@@ -45,7 +45,11 @@
 #define EV_ALARM_L1          0x0020u  /* ⏳ D8：三级告警 L1 */
 #define EV_ALARM_L2          0x0021u  /* ⏳ D8 */
 #define EV_ALARM_L3          0x0022u  /* ⏳ D8：切断；code = fault_bits，aux = 当时的组压/电流 */
-#define EV_MOS_CLOSE         0x0030u  /* ⏳ D6：闭合；code = 位图(1=DSG 2=CHG 4=PRE) */
+#define EV_MOS_CLOSE         0x0030u  /* ⏳ D6：闭合；code = 位图(1=充 2=放 4=预充) —— ★ 位序与 §6.1 的
+                                      *   0x0020「执行器状态」以及 `actuator.h` 的 ACT_ST_xxx **同一套**，
+                                      *   ⛔ 不得再出现第二种"充/放"位序（原注释写的是 1=DSG 2=CHG，
+                                      *   与 §6.1 相反 ⇒ D6 落代码时按唯一来源更正，历史 0 条不受影响：
+                                      *   本事件在 2026-09-28 之前从未被投过） */
 #define EV_MOS_OPEN          0x0031u  /* ⏳ D6：断开 */
 #define EV_PRECHARGE_START   0x0032u  /* ⏳ D6 */
 #define EV_PRECHARGE_FAIL    0x0033u  /* ⏳ D6：code = 第几次尝试 */
@@ -56,7 +60,10 @@
 #define EV_TASK_STALLED      0x0052u  /* ★ D5：判活失败（不喂狗 → ≤2s 复位）。code = `app_tasks_stalled_mask()`
                                       *   位图（bit i = `app_task_id_t` 第 i 个任务）。
                                       *   ★ 这条记录是验收项 WDG-3 / §8.4 V3 的**唯一现场证据**：
-                                      *     复位后 `EV_WDG_RESET` 只说"狗咬过"，本条说"是谁卡的"。 */
+                                      *     复位后 `EV_WDG_RESET` 只说"狗咬过"，本条说"是谁卡的"。
+                                      *   ★ D5 归因轮起 aux 有定义：**aux_a = 最坏那一路的年龄(ms)**、
+                                      *     **aux_b = 它自己的判活窗口(ms)** ⇒ 判读= aux_a/aux_b。
+                                      *     ⛔ 本事件不得再另用这两列（改语义会让历史 152 条与新读法不一致）。 */
 #define EV_AFE_COMM_FAIL     0x0060u  /* ⏳ D7：AFE 通信连续失败（S2 失效安全入口）*/
 #define EV_HW_PROTECT        0x0070u  /* ⏳ D8：硬件层解码命中（S26）；code = hw_fault_bits */
 #define EV_LOG_CORRUPT       0x00F0u  /* 本模块自检：上电扫描发现的损坏条数（判据②的可见出口）*/

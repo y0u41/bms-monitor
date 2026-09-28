@@ -590,6 +590,11 @@
               <FilePath>../../Drivers/BSP/AT24CXX/at24cxx.c</FilePath>
             </File>
             <File>
+              <FileName>ina226.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../Drivers/BSP/INA226/ina226.c</FilePath>
+            </File>
+            <File>
               <FileName>esp8266.c</FileName>
               <FileType>1</FileType>
               <FilePath>../../Drivers/BSP/ESP8266/esp8266.c</FilePath>
@@ -619,6 +624,16 @@
               <FileType>1</FileType>
               <FilePath>../../Drivers/BSP/AFE/afe_hal_bq76920.c</FilePath>
             </File>
+            <File>
+              <FileName>actuator_mos.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../Drivers/BSP/ACTUATOR/actuator_mos.c</FilePath>
+            </File>
+            <File>
+              <FileName>rs485.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../Drivers/BSP/RS485/rs485.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -633,6 +648,11 @@
               <FileName>app_data.c</FileName>
               <FileType>1</FileType>
               <FilePath>../../User/App/app_data.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_modbus.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../User/App/app_modbus.c</FilePath>
             </File>
             <File>
               <FileName>app_acq.c</FileName>

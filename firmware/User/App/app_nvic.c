@@ -42,13 +42,30 @@ void app_nvic_init(void)
     HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);
 
     /* 2) 已启用的中断（EnableIRQ 在各自的 MspInit 里，本处只覆盖优先级）。
-     *    USART1 = 调试串口 + ESP8266；USART3 = RS485-Modbus（D5 起要用 FromISR）。
-     *    ★ 口径：本工程**所有**可能调用 xxxFromISR() 的 ISR 统一走 ≥5 这一档；
+     * ⚠️ ★ **2026-09-28 就地更正一条与本条代码直接相关的口径错**：本行原写
+     *    "USART1 = 调试串口 + ESP8266；**USART3 = RS485-Modbus**" —— 那是错的，
+     *    两句都错：USART1 = 纯调试口（`printf` 重定向），**USART3 = ESP8266**
+     *    （`Drivers/BSP/ESP8266/esp8266.c` 的两个 HAL 回调都按 `Instance == USART3` 守卫），
+     *    而**板载 RS485 走 USART2**（`Tech_Design.md` §2 引脚表："板载 RS485 · Modbus |
+     *    PA2 / PA3 + PD7(RE/DE) | **USART2**"）。⇒ 按 §2（引脚口径唯一权威）更正。
+     *    ★ 这条错的危害正是它所在的位置：本函数是"哪些中断要设优先级"的唯一清单，
+     *      照着它办会**漏配真正服务 Modbus 的那条串口**，而漏配的表现是"Modbus 偶尔不应答"
+     *      （优先级不同 ⇒ 抢占关系不同），与线序/波特率问题完全同形。
+     *    ★ 口径：本工程**所有**可能调用 `xxxFromISR()` 的 ISR 统一走 ≥5 这一档；
      *      当前 USART1 的 ISR 里没有 FromISR 调用（printf 是轮询发送），但给它
-     *      更小的数字并不会带来任何收益，而 D5 一旦在 USART3 里加队列发送就会
-     *      踩坑 —— 所以两条串口一起设成 6，一次到位。 */
+     *      更小的数字并不会带来任何收益 —— 所以三条串口一起设成 6，一次到位。
+     *    ⚠️ USART2 与两个 DMA 通道（RS485 那三个中断）**今天一次 FromISR 都不调**
+     *      （`rs485.c` 的回调只写 volatile 标志与寄存器，见其头注第 4 条）⇒ 它们对 5 这个
+     *      下限其实**无约束**；仍按同一档设置，是为了"同一类东西只有一个数字"这一条更好查。 */
     HAL_NVIC_SetPriority(USART1_IRQn, APP_IRQ_PRIO_UART, 0u);
     HAL_NVIC_SetPriority(USART3_IRQn, APP_IRQ_PRIO_UART, 0u);
+    /* ★ 2026-09-28（Modbus 从机轮）：**新增**下面三行 —— 板载 RS485 的 USART2 与它的
+     * 两个 DMA 通道（RX = CH6 / TX = CH7，出处与真机判据见 `Drivers/BSP/RS485/rs485.h`）。
+     * 这三行的落点是**本文件**而不是 `rs485.c`：`app_nvic_init()` 是"优先级唯一收口"
+     * （见 `app_nvic.h` 头注），而 `rs485.c` 只负责"什么时候允许它触发"（EnableIRQ）。 */
+    HAL_NVIC_SetPriority(USART2_IRQn,        APP_IRQ_PRIO_UART, 0u);
+    HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, APP_IRQ_PRIO_UART, 0u);
+    HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, APP_IRQ_PRIO_UART, 0u);
 
     /* 3) AFE ALERT（PD13 → EXTI15_10）：★ 此处**只定优先级，不 EnableIRQ**。
      *    EnableIRQ 属于 D8 的保护链路联调内容；提前开中断会在没接板子时被浮空

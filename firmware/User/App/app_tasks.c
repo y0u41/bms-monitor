@@ -24,6 +24,7 @@
 #include "./App/app_main.h"       /* ⏳ 迁移容器专用（D15 随 task_legacy 一起删除） */
 #include "./App/app_protect.h"    /* TaskProtect：告警帧写者 + 唯一喂狗点 */
 #include "./App/app_log.h"        /* TaskLog：事件落盘的唯一消费者 */
+#include "./App/app_modbus.h"    /* TaskComm：Modbus RTU 从机的周期体（2026-09-28 提前交付） */
 #include <string.h>
 
 /* ==========================================================================
@@ -74,6 +75,13 @@ static volatile uint32_t s_beat_tick[APP_TASK_COUNT];   /* 各任务最近一次
 static volatile uint32_t s_worst_age[APP_TASK_COUNT];
 static volatile uint8_t  s_stalled_last;
 
+/* 判活现场（⛔ 不参与判据，只进 `EV_TASK_STALLED` 的 aux 两列）：
+ *   最近一次判活里"超得最狠那一路"的年龄 + 它自己的判活窗口。
+ *   为什么要它：位图只说"谁超了"，而"刚好超一点"与"超一个数量级"的修法完全不同，
+ *   ⛔ 不许靠猜 —— 现在这条日志自己就能回答（`Tools/log_decode.sh`）。 */
+static volatile uint32_t s_over_age_ms;
+static volatile uint32_t s_over_dl_ms;
+
 /* 下标顺序必须与 app_task_id_t 完全一致（同一份宏，不另写字面量） */
 static const uint32_t s_period_ms[APP_TASK_COUNT] =
 {
@@ -90,10 +98,12 @@ static const uint32_t s_period_ms[APP_TASK_COUNT] =
 
 void app_tasks_heartbeat(uint8_t idx)
 {
-    if (idx < (uint8_t)APP_TASK_COUNT)
+    if (idx >= (uint8_t)APP_TASK_COUNT)
     {
-        s_beat_tick[idx] = xTaskGetTickCount();
+        return;
     }
+
+    s_beat_tick[idx] = xTaskGetTickCount();
 }
 
 uint8_t app_tasks_stalled_mask(void)
@@ -102,9 +112,14 @@ uint8_t app_tasks_stalled_mask(void)
     uint8_t  mask = 0u;
     uint8_t  i;
 
+    /* 每次重判先清"最坏那一路"，避免上一轮的旧 offender 混进这一轮的记录 */
+    uint32_t worst_a = 0u;
+    uint32_t worst_d = 0u;
+
     for (i = 0; i < (uint8_t)APP_TASK_COUNT; i++)
     {
         uint32_t age = (uint32_t)(now - s_beat_tick[i]);   /* 1ms/tick ⇒ 差值即 ms */
+        uint32_t dl  = s_period_ms[i] * APP_WDG_ALIVE_K;
 
         /* 峰值只涨不落：容器是"一阵一阵"超的，判活时刻的年龄才是现场证据 */
         if (age > s_worst_age[i])
@@ -112,12 +127,25 @@ uint8_t app_tasks_stalled_mask(void)
             s_worst_age[i] = age;
         }
 
-        if (age > pdMS_TO_TICKS(s_period_ms[i] * APP_WDG_ALIVE_K))
+        if (age > pdMS_TO_TICKS(dl))
         {
             mask |= (uint8_t)(1u << i);     /* 位图直接给出"是哪个任务卡死"，供事件日志用 */
+
+            if (age > worst_a)              /* 超得最狠的那一路才值得记 */
+            {
+                worst_a = age;
+                worst_d = dl;
+            }
         }
     }
     s_stalled_last = mask;
+
+    if (mask != 0u)                         /* 干净轮次不覆盖，保留最后一次现场 */
+    {
+        s_over_age_ms = worst_a;
+        s_over_dl_ms  = worst_d;
+    }
+
     return mask;
 }
 
@@ -149,6 +177,16 @@ uint32_t app_tasks_deadline_ms(uint8_t idx)
     }
 
     return s_period_ms[idx] * APP_WDG_ALIVE_K;
+}
+
+uint32_t app_tasks_over_age_ms(void)
+{
+    return s_over_age_ms;
+}
+
+uint32_t app_tasks_over_dl_ms(void)
+{
+    return s_over_dl_ms;
 }
 
 /* ==========================================================================
@@ -234,6 +272,7 @@ static void task_protect(void *pv)
 }
 
 /* ---------- TaskAcq（100ms，prio 3）---------- */
+
 static void task_acq(void *pv)
 {
     (void)pv;
@@ -241,6 +280,12 @@ static void task_acq(void *pv)
     {
         app_tasks_heartbeat(APP_TASK_ACQ);
 
+        /* 判据（`Build.md` §5.2 V3 / §4 自检「看门狗」）= TaskProtect 报 bit1 + 停喂 +
+         * ≤2.5s 内复位 + 事后能拿到 `EV_TASK_STALLED`（★ C-110 起有两条通路：日志 / 备份域携带）。
+         * ⛔ 不得在这里喂狗、⛔ 不得改判活。
+         * ★ 2026-09-28：原先挂在这里的那个"调试器写一个字节即进死循环"的临时注入位
+         *   已按计划拆除（判据本身仍是上面三条，再验一次只需临时注入）；
+         *   ⛔ 不得改回"按住某个键上电就武装"的形态 —— 那是现场可误触发的人为失效向量。 */
         /* ⏳ 迁移期**故意空转**：`app_acq_step()` 仍留在容器里由 `app_periodic()` 调用。
          *   两个原因，任一条成立都不能提前搬：
          *   ① raw 盒只能有一个写者（C-97 F1）。现在 `app_periodic()` 里
@@ -262,11 +307,18 @@ static void task_comm(void *pv)
     {
         app_tasks_heartbeat(APP_TASK_COMM);
 
-        /* TODO(D9): Modbus RTU 收帧/回帧（app_modbus.c）—— IDLE 中断 + DMA，
-         *           DE/RE 用 TC 中断释放；10ms 轮询，ISR 内不调 xxxFromISR。
-         * ⛔ D5 的 M7（"假数据先进 task_comm"）本轮**不做**：`附录C` C-100 要求
-         *   任何对外应答先证明"是这台机器在应答"，而 RS485/3 路 UART 的收发主体
-         *   还没接（D9）—— 现在建一个回假值的从机，测出来的"通"是假的。
+        /* ★ 2026-09-28（Modbus 从机轮）：D9 的从机提前交付 ⇒ 这里从"空转"变成真正的业务。
+         *   物理层 = `Drivers/BSP/RS485/`（USART2 + PD7，IDLE 中断 + DMA 收帧 / DMA 发送 /
+         *   **TC 中断释放 DE** —— 正是本任务原 TODO 里写的那套机制，一条没改）；
+         *   协议层 = `User/App/app_modbus.c`（CRC16 + 五个功能码 + §6.1 寄存器映射）。
+         *   ⚠️ 入参必须是 `HAL_GetTick()` 口径（与快照时间戳同钟，否则 0x0030 新鲜度会
+         *      算出回绕的巨大值 —— 与 `app_protect_step()` 那条同名坑）。 */
+        app_modbus_step(HAL_GetTick());
+
+        /* ⛔ 原 TODO(D9) 那两行**已完成**，但其中一条口径仍然成立、留在这里不走：
+         *   `附录C` C-100 要求"任何对外应答先证明**是这台机器在应答**"（M0 三条判据）。
+         *   本任务现在**能应答**了，但 M0 的②活证据与③逐项对表要等 RS485 主机与第三方
+         *   工具接上 ⇒ **在那之前，Modbus 一行都不算验收**（⛔ 尤其不得拿"工具里有数"当证据）。
          * TODO(加分): WiFi/MQTT/OneNET 上报（迁移期仍在容器里，见 `app_main.c`） */
 
         vTaskDelay(pdMS_TO_TICKS(APP_PERIOD_COMM_MS));
@@ -289,6 +341,7 @@ static void task_log(void *pv)
          *   看到的"事件时刻"和"数据时刻"差一个调度器启动偏移。 */
         app_log_poll(HAL_GetTick());
 
+
         vTaskDelay(pdMS_TO_TICKS(APP_PERIOD_LOG_MS));
     }
 }
@@ -309,6 +362,7 @@ static void task_legacy(void *pv)
     {
         app_tasks_heartbeat(APP_TASK_UI);     /* 迁移期占用 Ui 身份（判活周期见 s_period_ms 注） */
         app_main_service();                   /* ⏳ 遗留超循环的循环体，逐日搬空 */
+
         vTaskDelay(pdMS_TO_TICKS(APP_PERIOD_LEGACY_MS));
     }
 }

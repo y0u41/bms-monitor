@@ -1,6 +1,6 @@
 #!/bin/sh
 # ============================================================================
-#  G7 机械可检门禁（AGENTS.md §3）—— 六条搜索，查到即改，不讨论
+#  G7 机械可检门禁（AGENTS.md §3）—— 七条搜索，查到即改，不讨论
 #  用法：  sh Tools/gate_check.sh        （在 firmware/ 下或任意目录均可）
 #  退出码：0 = 全绿；非 0 = 有违规项（打印文件:行号）
 # ============================================================================
@@ -79,6 +79,28 @@ if [ "$n" -ne 1 ]; then
     echo "   ^^ FAIL: 命中 $n 处调用（应为 1 处，且必须在 app_protect.c 的 TaskProtect 路径上）"; fail=1
 else
     echo "   OK（$callers）"
+fi
+
+echo "== G7-7  执行器动作只允许出现在 app_protect.c（D6 / S9 的机械化）=="
+# S9「所有对主回路的开关动作必须经过 app_protect.c 状态机，禁止在别处直接写执行器 GPIO」
+# 原来只是一条写在头注里的**纪律**，而纪律不会自己守住（与 G7-⑤/⑥ 同一类）：
+# 任何人在界面里"顺手合一下试试"都不会有编译错误，只会得到一次没有状态机参与的闭合 ——
+# 那正好绕过 S3（常态断开）、S10（最小动作间隔）与 S11（锁定），而且日志里查不到是谁干的。
+# ⚠️ 口径与 G7-③/⑤ 一致：搜**代码实体的字面量**，注释里出现也判红（改成文字描述）。
+#    搜索根 = User/（定义体在 Drivers/BSP/ACTUATOR/，那里本来就该有，不在本条管辖内）。
+# ★ 存在性探针（本轮实测建立）：同一正则不加白名单过滤时，User/ 下总命中 = **15 处**
+#    （app_protect.c 13 ＋ app_protect.h 2）。所以"OK"必须把总数说出来——只说 OK 的判据
+#    在正则/搜索根坏掉时照样绿，而那与"真的只有一个执行者"完全同形。
+all=$(grep -rnE 'actuator_(init|close|open|precharge_start|precharge_stop|get_state)[[:space:]]*\(' \
+      --include='*.c' --include='*.h' User)
+nall=$(printf '%s\n' "$all" | grep -c '[^[:space:]]')
+bad=$(printf '%s\n' "$all" | grep '[^[:space:]]' | grep -v '^User/App/app_protect\.[ch]:')
+if [ "$nall" -eq 0 ]; then
+    echo "   ^^ FAIL: 出现了第二个碰执行器的文件（含注释里写到函数名的——改成文字描述）"; fail=1
+elif [ "$(printf '%s' "$all" | grep -c .)" -eq 0 ]; then
+    echo "   ^^ FAIL: 探针不成立 —— User/ 下总命中 0 处。"; echo "      「一次都不命中」与「真的只有一个执行者」完全同形（C-110 同族）；"; echo "      0 命中只可能是正则或搜索根坏了，⛔ 不得当成通过"; fail=1
+else
+    echo "   OK（总命中 $(printf '%s' "$all" | grep -c .) 处，全部落在白名单 app_protect.c/.h 内）"
 fi
 
 [ $fail -eq 0 ] && echo "---- G7 全绿 ----" || echo "---- G7 有违规，见上 ----"

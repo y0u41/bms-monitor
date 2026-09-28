@@ -46,4 +46,13 @@ void        app_ui_set_unlock_hook(void (*hook)(void));
  * 同上：未注册时只回显，不改状态。 */
 void        app_ui_set_ack_hook(void (*hook)(void));
 
+/**
+ * @brief       ★ 从**协议侧**触发一次"短按清除本地告警"（Modbus 线圈 0x0003 的落点）
+ * @retval      1 = 请求已交出（走 hook，或 hook 未注册时的界面兜底路径）
+ * @note        ★ 为什么协议层不能自己抓一个静音函数：见 `app_ui.c` 的实现注 ——
+ *              那是"第二条通路"，而两条通路今天恰好等价、明天一定不等价。
+ *              ⛔ 本函数不解除三级锁定（S11：那是长按 5s 的专属动作）。
+ */
+uint8_t     app_ui_request_ack(void);
+
 #endif

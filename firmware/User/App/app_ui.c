@@ -62,6 +62,7 @@ static uint16_t       s_row_y[UI_ROW_BUF];
 static char           s_line_txt[UI_ROW_BUF][UI_LINE_MAX + 1];
 static uint16_t       s_line_col[UI_ROW_BUF];
 static uint8_t        s_line_valid[UI_ROW_BUF];
+static uint8_t        s_line_len[UI_ROW_BUF];   /* ★ 上一帧这一行**实际画到**的字符数（含补的空格）*/
 static uint8_t        s_full_redraw = 1;      /* 1 = 下一次要整屏重画 */
 static uint16_t       s_bg          = WHITE;  /* 当前底色；换底色必须整屏重画 */
 static uint16_t       s_view_seq      = 0xFFFF;   /* 上次渲染的快照序号 */
@@ -184,9 +185,17 @@ static void ui_row(uint8_t row, uint16_t color, const char *text)
 
     memcpy(pad, text, len);
 
-    while ((uint8_t)(len + 1u) <= cols)
+    /* ★ 只补到"上一帧这一行画到了第几列"，⛔ 不补满整行宽。
+     *   原写法无条件补到 `cols`（正文一屏 40 列）⇒ 每行平均多写一倍纯背景像素。
+     *   依据 = 实测：整页重绘 294ms 中逐行占 294ms、整屏清屏只占 26ms
+     *   （`附录C` 走 A 的归因链；容器的判活窗口只有 80ms ⇒ 294ms 就是超窗本体）。
+     *   残字擦除仍然完整：上一帧画到 `s_line_len[row]`，本帧就至少补到同一列。*/
+    if (s_line_valid[row] != 0u && s_line_len[row] > (uint8_t)len)
     {
-        pad[len++] = ' ';               /* 定宽右补空格：不需要清屏就能盖掉上一次的残字 */
+        while (len < s_line_len[row])
+        {
+            pad[len++] = ' ';
+        }
     }
 
     pad[len] = '\0';
@@ -198,9 +207,19 @@ static void ui_row(uint8_t row, uint16_t color, const char *text)
 
     memcpy(s_line_txt[row], pad, (uint16_t)(len + 1u));
     s_line_col[row]   = color;
+    s_line_len[row]   = (uint8_t)len;
     s_line_valid[row] = 1u;
 
     lcd_show_string(UI_X, s_row_y[row], lcddev.width, font, font, pad, color);
+
+    /* ★ 行界补心跳（走 A 的后半：把不可打断的最长一段压到"一行"这个粒度）。
+     *   单行上限 ≈ 整页/行数 ≈ 30ms < 容器 80ms 窗口 ⇒ "确实在推进"的长重绘不再被误判成卡死，
+     *   而"卡在某一行之内的真死"仍然会在不到 80ms 内被狗咬 —— ⛔ 补心跳的正当性只来自
+     *   "这一段确有进展"，不许理解成"哪里慢就补哪里"（那等于把判活关掉）。
+     *   ⚠️ 本行写的是**调用方那一 lane** 的槽：目前调用者只有容器 `task_legacy()`
+     *      （占 `APP_TASK_UI` 槽）与它的泵 `app_poll()`，同一个槽 ⇒ 不会错配；
+     *      D15 容器清空后本文件由 TaskUi 独占，槽号依旧对得上。*/
+    app_tasks_heartbeat(APP_TASK_UI);
 }
 
 /**
@@ -815,6 +834,23 @@ void app_ui_set_unlock_hook(void (*hook)(void))
 void app_ui_set_ack_hook(void (*hook)(void))
 {
     s_ack_hook = hook;
+}
+
+/**
+ * @brief       ★ 从协议侧触发一次"短按清除本地告警"（Modbus 线圈 0x0003）
+ * @retval      1 = 请求已交给 hook（或 hook 未注册时的静音兜底路径）
+ * @note        为什么必须有这个入口，而不是让 `app_modbus.c` 直接去抓一个静音函数：
+ *              "短按 KEY0 该做什么"的**唯一属主是这里**（`s_ack_hook` 的注册点 +
+ *              下面 `ui_do_ack()` 的兜底语义）。协议层另抓一个函数 = 第二条通路，
+ *              两条通路今天恰好等价、明天一定不等价 —— 而"线圈点下去没反应"与
+ *              "线圈点下去反应错了"在总线上看到的是同一个字节（C-97 F1 同族）。
+ *              ⛔ 本函数**不解除三级锁定**（那是长按 5s 的专属动作，S11）。
+ */
+uint8_t app_ui_request_ack(void)
+{
+    ui_do_ack();
+
+    return 1u;
 }
 
 uint8_t app_ui_page(void)

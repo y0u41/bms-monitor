@@ -62,4 +62,12 @@ uint32_t app_tasks_worst_age_ms(uint8_t idx);
 /** @brief 第 idx 个任务的判活窗口 = `APP_WDG_ALIVE_K × 自身周期`，单位 ms（配上一条用） */
 uint32_t app_tasks_deadline_ms(uint8_t idx);
 
+/* ==================== 判活现场（进事件日志 aux，永久保留）====================
+ * 位图只说"谁超了"，aux 两列说"超了多少"：`EV_TASK_STALLED` 的 aux_a = 最近一次判活里
+ * 超得最狠那一路的年龄、aux_b = 它自己的判活窗口 ⇒ "刚好超一点（余量不足）"与
+ * "超一个数量级（某段不泵钩子的长等待）"在日志里就能分开，⛔ 不必接调试器。
+ * 消费点 = `app_protect.c` 的 `protect_wdg_check()`；解码 = `Tools/log_decode.sh`。*/
+uint32_t app_tasks_over_age_ms(void);   /* 最近一次判活里超得最狠那一路的年龄（进日志 aux_a）*/
+uint32_t app_tasks_over_dl_ms(void);    /* 它自己的判活窗口（进日志 aux_b）*/
+
 #endif /* __APP_TASKS_H */

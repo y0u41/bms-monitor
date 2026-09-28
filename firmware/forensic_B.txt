@@ -1,0 +1,29 @@
+xPack Open On-Chip Debugger 0.12.0+dev-02228-ge5888bda3-dirty (2025-10-04-22:44)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Warn : DEPRECATED: auto-selecting transport "swd (dapdirect)". Use 'transport select swd' to suppress this message.
+Warn : Transport "swd" was already selected
+Info : STLINK V2J46S7 (API v2) VID:PID 0483:3748
+Info : Target voltage: 3.245563
+Info : Unable to match requested speed 1000 kHz, using 950 kHz
+Info : Unable to match requested speed 1000 kHz, using 950 kHz
+Info : clock speed 950 kHz
+Info : SWD DPIDR 0x1ba01477
+Info : [stm32f1x.cpu] Cortex-M3 r1p1 processor detected
+Info : [stm32f1x.cpu] target has 6 breakpoints, 4 watchpoints
+Info : [stm32f1x.cpu] Examination succeed
+Info : [stm32f1x.cpu] starting gdb server on 3333
+Info : Listening on port 3333 for gdb connections
+Warn : [stm32f1x.cpu] target was in unknown state when halt was requested
+### S2_beat
+0x200017cc: 0002e7e9 0002e7c1 0002e7e9 0002e7e5 0002e7e0 
+### S2_age
+0x20005410: 00000000 00000064 0000000a 0000001a 0000001a 
+### stalled2
+0x20001d81: 00 
+### ovf_cnt2
+0x20001bbc: 00000000 
+### IWDG2
+0x40003000: 00000000 00000004 000004b6 00000000 
+shutdown command invoked

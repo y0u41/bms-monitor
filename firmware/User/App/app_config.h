@@ -232,14 +232,22 @@
  *      `now - 该任务最后一次推进 > APP_WDG_ALIVE_K × 该任务自身周期` 才算死。
  *    ⇒ 与"检查调用得多频繁"无关，只与任务自己的周期有关。
  *
- * ⚠️ `APP_LSI_HZ` 是**标称** 40kHz（F103 数据手册给的范围 30~60kHz），
- *    所以 `APP_IWDG_RLR` 算出的 2s 只是理论值 —— **D5 必须实测 LSI 后回填**
- *    （测法见 `Build.md` §5 的 WDG-1）。三个窗口(判活 / 喂狗检查 / IWDG 超时)
- *    的自洽关系由 §12 末尾的编译期断言守住，写小/写大直接编译不过。 */
+ * ✅ `APP_LSI_HZ` 已于 2026-09-28 **实测回填**（原为标称 40kHz，F103 数据手册只给 30~60kHz）：
+ *    实测通路 = v0.15 取证构建把 RTC 当 LSI 计数器（`PRL=39` ⇒ 每 40 个 LSI 周期跳 1），
+ *    参考钟 = HSE 8MHz 派生的 `uwTick`（与被测钟无关，⛔ 不得用标称反推），结果写 BKP DR3/DR4，
+ *    由调试器直读；工具 `Tools/lsi_readout.sh`，换算式 `LSI_HZ = Δcounts × 40 × 1000 ÷ Δms`。
+ *    ★ 三次开机原始读数 = 1938/2008、1936/2006、1936/2006（counts/ms）⇒ 38606 / 38604 / 38604 Hz，
+ *    取 38604。偏差 vs 标称 = -3.49%；分辨率 ±1 计数 ≈ ±20 Hz（窗口 2s）。
+ *    ⚠️ 边界：这是"这一颗芯片、当时的温度"的实测值 ⇒ `APP_IWDG_RLR` 因此按 38604 反算，
+ *    §12.6 那组断言证明的是"在此值下三窗口自洽"，⛔ 不是"在全温度域自洽"（手册域 30~60kHz 仍在）。
+ *    ★ 独立旁证（同一次上机的另一条观测）：正常构建 `Drivers/BSP/RTC/rtc.c:199` 的
+ *    `AsynchPrediv = 32767` ⇒ 它的"1 秒"实际 = 38604/32768 = 1.178 s ⇒ 日志时间戳走快约 17.8%，
+ *    与 09-28 解 Flash 日志时观测到的"走快约 20%"同向（两个来源不同的数指向同一个实测值）。
+ *    ⇒ 三个窗口(判活 / 喂狗检查 / IWDG 超时)的自洽关系仍由 §12.6 的编译期断言守住。 */
 #define APP_WDG_ALIVE_K         4       /* 判活余量倍数：允许任务落后 K 个自身周期 */
 #define APP_WDG_CHECK_MS        500     /* TaskProtect 的"判活 + 条件喂狗"周期 */
 #define APP_IWDG_TIMEOUT_MS     2000    /* IWDG 超时设计值（Tech_Design.md §4.3） */
-#define APP_LSI_HZ              40000   /* ⚠️ 标称值，待实测标定（30~60kHz） */
+#define APP_LSI_HZ              38604   /* ★ 2026-09-28 实测回填（×3 开机：38606/38604/38604）；原标称 40000 */
 /* ★★ `IWDG->PR` 存的是**编码**，不是分频数：设备头 `stm32f103xe.h` 给 `IWDG_PR_PR_Msk = 0x7`
  *   ⇒ 只有 PR[2:0] 三位，编码 0~6 依次 = /4 /8 /16 /32 /64 /128 /256（RM0008 IWDG_PR）。
  *   本行曾经是 `#define APP_IWDG_PRESCALER 64` 并被 `app_protect.c` 直接写进 PR：
@@ -254,9 +262,10 @@
 #define APP_IWDG_PR             4u                                  /* 寄存器编码：4 → 64 分频 */
 #define APP_IWDG_PRESCALER      (4u << APP_IWDG_PR)                 /* 分频数 = 4·2^编码 → 64 */
 #define APP_IWDG_RLR            ((APP_LSI_HZ / APP_IWDG_PRESCALER) * APP_IWDG_TIMEOUT_MS / 1000u)
-                                        /* = 1250 → 625Hz × 2s；上界 4095（12 位重载） */
+                                        /* ★ 由实测 LSI 反算：38604/64 = 603（整除截断）→ 603 × 2s = 1206。
+                                           回填前是 1250 = 40000/64 × 2s；上界 4095（12 位重载） */
 #define APP_IWDG_REAL_MS        ((APP_IWDG_RLR) * APP_IWDG_PRESCALER * 1000u / APP_LSI_HZ)
-                                        /* ★ 由"真正写进寄存器的这两个数"反算出的窗口（标称 LSI 下 = 2000ms） */
+                                        /* ★ 由"真正写进寄存器的这两个数"反算出的窗口 = 1206×64/38604 ≈ 1999ms */
 
 /* ==================== 12. BMS 编译期配置（§4.4 / C-01） ====================
  * 换电池规模 / 换 AFE 后缀只改这一段。⛔ 门限值不得散落到 .c（S14）。
@@ -347,6 +356,38 @@ APP_STATIC_ASSERT(APP_IWDG_RLR       >= 1u,                      wdg_rlr_zero);
  *   下面第一条立即 `negative size` 报错，而 §12.6 原有七条全绿。 */
 APP_STATIC_ASSERT(APP_IWDG_PR            <= 6u,                  iwdg_pr_encoding_overflow);
 APP_STATIC_ASSERT(APP_IWDG_REAL_MS       >= (APP_WDG_CHECK_MS * 2u), iwdg_real_window_below_feed_window);
+
+/* ---------- 12.6b 卡死现场携带（★ C-110：备份域寄存器 = 复位后唯一活下来的信箱） ----------
+ * ★ 为什么必须有这一段：`protect_wdg_check()` 检出卡死后投的那条 `EV_TASK_STALLED` 只进
+ *   **RAM 队列**，唯一的落盘者是 `task_log()` 里的 `app_log_poll()`（`app_tasks.c:337`，50ms 一轮）。
+ *   而优先级 `Protect(4) > Acq(3) > Comm(2) > Log(1) = Ui(1)` ⇒ **prio ≥ 2 的任务死循环会把
+ *   TaskLog 饿死** ⇒ 那条记录连同"是谁卡的"一起被狗吃掉。
+ *   ★ 2026-09-28 实机定量（`归档/V3咬狗正证_2026-09-28_现场直读.md` §5）：同一片 Flash 镜像里
+ *   **1097 条 `EV_TASK_STALLED` 全部是 bit4（容器，prio 1 = 与 Log 同级才落得了盘）、0 条带
+ *   bit1/2/3**，而 `EV_WDG_RESET` 有 203 条 ⇒ "检出来了"与"落不了盘"是两件事。
+ *   ⇒ 修法 = 检出停滞的**当轮**就把 位图/年龄/窗口 写进备份域寄存器（不需要调度器、不需要 Flash、
+ *   不阻塞），复位后那次开机在任何擦写之前先读回来补投一条 `EV_TASK_STALLED`（aux 语义不变）。
+ * ⚠️ 边界：携带值靠 VBAT 维持 ⇒ **断电重上电会丢**；但断电本来没有"卡死"要记（CSR 会报 PIN/LPOR）。
+ * ⚠️ 只记"最坏那一路"：复位前那 ≤2s 内 `APP_WDG_CHECK_MS` 还能判 3~4 轮，取年龄最大的一轮。
+ * ★ 槽位占用（⛔ 不得凭记忆选地址，两处出处）：
+ *   ① 映射 = `stm32f103xe.h:197~246`：`RESERVED0`@0x00、`DR1`@0x04 … `DR10`@0x28，基址
+ *      `BKP_BASE = APB1PERIPH_BASE + 0x6C00`（同文件 `:758`）⇒ DR3 = `0x40006C0C`、
+ *      DR4 = `0x40006C10`、DR5 = `0x40006C14`、DR6 = `0x40006C18`、DR7 = `0x40006C1C`。
+ *   ② 本仓库已占用 = `Drivers/BSP/RTC/rtc.c` 的 `rtc_write_bkr()/rtc_read_bkr()`（`:35~49`，内部
+ *      `HAL_RTCEx_BKUPWrite(&hrtc, bkrx + 1, …)` ⇒ bkrx 0/1 落在 **DR1/DR2**），调用点只有
+ *      `:57/:154/:184/:191/:253` 且全部传 0 或 1 ⇒ **DR3 以上空着**。
+ *   ③ 每格只有低 16 位有效（`BKP_DR1_D_Msk = 0xFFFF`，`stm32f103xe.h:1020~1022`）⇒ 载荷一律 `uint16_t`。
+ * ★ 为什么用**两个**魔数格：断掉 VBAT 后备份域内容是**未定义**而不是 0，单格 16 位有 1/65536 的
+ *   概率撞上一个"看起来像"的值 ⇒ 两格联合 = 实际不可能。开机读取无论有效与否**都先把这几格清零**
+ *   （`app_protect.c` 的 `app_protect_stall_carry_report()`），所以上一版构建（v0.15 取证构建写过
+ *   DR3/DR4/DR5/DR6/DR8）留下的垃圾在 v0.16 第一次开机就被擦掉，不会二次误报。 */
+#define APP_STALL_CARRY_MAGIC_A   0x5354u     /* 'ST' → BKP DR3 = 0x40006C0C */
+#define APP_STALL_CARRY_MAGIC_B   0x4C31u     /* 'L1' → BKP DR4 = 0x40006C10 */
+#define APP_STALL_CARRY_SLOT_A    3u          /* 魔数格 1 = BKP DRn（n 从 1 数）*/
+#define APP_STALL_CARRY_SLOT_B    4u          /* 魔数格 2 */
+#define APP_STALL_CARRY_SLOT_MASK 5u          /* 载荷：`app_tasks_stalled_last()` 位图 */
+#define APP_STALL_CARRY_SLOT_AGE  6u          /* 载荷：最坏那一路的年龄（ms，饱和 0xFFFF）*/
+#define APP_STALL_CARRY_SLOT_DL   7u          /* 载荷：它自己的判活窗口（ms）*/
 
 /* ---------- 12.7 BMS 三级告警门限（★ 附录C · C-38：电池量一律 APP_BMS_*） ----------
  * 数值的**唯一来源是 `PRD.md` §2.3**，本节只把表里的十进制数换成内部量纲的宏，
@@ -524,10 +565,42 @@ typedef enum
  * 保护判据不得使用无效通道的数据，降级方向一律朝"禁止动作"，不朝放行。 */
 #define APP_DATA_STALE_MS       5000
 
-/* ---------- 12.10 开关时序：长按解除锁定（§5.2 表；其余 APP_CTR_* 随 D5 的 app_protect 落地） ----------
+/* ---------- 12.10 开关时序（`Tech_Design.md` §5.2 表的代码落点） ----------
  * S11：三级（切断）动作后必须锁定，而锁定**只能**由"长按 KEY0 达这个时长"解除。
  * 界面长按判据与将来的解除判据是同一条 → 只允许一处定义（S14）。 */
 #define APP_CTR_LATCH_HOLD_MS   5000
+
+/* ★ 2026-09-28（D6 软件侧前置）把 §5.2 剩下的四行 + 一条定点比例补齐。
+ * 数值来源全部是 `Tech_Design.md` §5.2 的时序参数表，⛔ 本文件不复述论证。 */
+#define APP_CTR_PRECHARGE_MS    500     /* 预充保持时间上限（超时 = 一次失败） */
+#define APP_CTR_PRECHARGE_DV_MV 1000    /* 判据②：闭合前 V_SW 必须降到 1000mV 以下 */
+#define APP_CTR_MIN_INTERVAL_MS 3000    /* S10：同一开关两次动作的最小间隔（防振荡） */
+#define APP_CTR_PRECHARGE_RETRY 3       /* 预充失败重试次数，超限进 FAULT_LATCHED（A 类越限，§5.2） */
+
+/* 判据①的比例 = "V_SW 必须 > 0.8 × V_pack 才允许进预充"。
+ * ⛔ 不用浮点 0.8f（§2.2：浮点只在 app_soc 与界面格式化）⇒ 做成 x10 定点整数。
+ * ⚠️ 这一条是 §3.2 的**反直觉判据**：V_SW 大 = 开关两端真的隔着组压 = 采样与负载都在；
+ *   V_SW ≈ 0 有两种成因（负载电容已被充上 / 采样线断了或被旁路），后者若当成"已预充好"
+ *   就会直接闭合主开关 —— 只看判据②的机器正是这样"假装预充成功"的。 */
+#define APP_CTR_VSW_RATIO_X10   8u      /* 8/10 = 0.8 */
+
+/* §12.10.1 时序参数的一致性（§5.2 的两条 ★ 注 + 两处单位陷阱）
+ * ⚠️ 本单元里 `APP_CTR_PRECHARGE_DV_MV` 是 **mV**，而 `v_sw_10mv` 是 **10mV**（§2.2 内部量纲 = 协议量纲）
+ *   ⇒ 判据处必须 `/10`，而下面第 3、4 条就是把这笔换算钉死的地方：
+ *   余数非 0 ⇒ 定点除法会悄悄向下取整（C-104 / C-106 同族：**单位口径写在两个宏里、断言用设计值算就一条都不响**）；
+ *   商达到 0xFFFF ⇒ 合法读数与 `APP_MV_INVALID` 同形（§2.2 无效值纪律）。 */
+APP_STATIC_ASSERT(APP_CTR_VSW_RATIO_X10 >= 1u && APP_CTR_VSW_RATIO_X10 < 10u,  vsw_ratio_is_fraction);
+APP_STATIC_ASSERT(APP_CTR_PRECHARGE_MS >= 10u * APP_PERIOD_PROTECT_MS,         precharge_window_too_short);
+APP_STATIC_ASSERT(APP_CTR_MIN_INTERVAL_MS >= APP_CTR_PRECHARGE_MS,             cooldown_shorter_than_on_time);
+APP_STATIC_ASSERT(APP_CTR_MIN_INTERVAL_MS >= 3000u,                            min_interval_below_s10);
+APP_STATIC_ASSERT(APP_CTR_PRECHARGE_DV_MV % 10u == 0u,                         dv_not_divisible_by_10mv);
+APP_STATIC_ASSERT(APP_CTR_PRECHARGE_DV_MV / 10u < APP_MV_INVALID,              dv_collides_with_invalid);
+/* 判据②必须远低于判据①的**下界**：V_pack 取"还允许闭合的最低组压" = 单体欠压三级 × 串数
+ * （再低的话 L3 早已断放并锁定，状态机根本走不到预充）。两条若不满足 = 一个只充到一半的
+ * 负载电容也能通过② ⇒ 判据②失效，而它正是"闭合无浪涌"的唯一证据。 */
+APP_STATIC_ASSERT(APP_CTR_PRECHARGE_DV_MV <
+                  (APP_CTR_VSW_RATIO_X10 * APP_BMS_CELL_UV_L3_MV * APP_CELL_COUNT) / 10u,
+                  dv_not_below_gate1_floor);
 
 /* ---------- 12.11 定点滤波（FR-ACQ-06，`PRD.md` §2 采集 / §4 时间预算） ----------
  * 一阶低通：`y += (x - y) / 2^S`。累加器多留 S 位小数 ⇒ 末位不会被"卡在离目标还差半格"
@@ -554,6 +627,148 @@ typedef enum
 
 APP_STATIC_ASSERT(APP_FILT_LPF_SHIFT >= 1u && APP_FILT_LPF_SHIFT <= 3u, filt_shift_out_of_range);
 APP_STATIC_ASSERT(APP_FILT_SETTLE_MS < APP_ALARM_CONFIRM_MS,            filt_eats_alarm_confirm);
+
+/* ---------- 12.12 INA226 定标与转换时序（★ D10 落点；`附录C` C-96 登记的尾巴） ----------
+ * 命名空间 = **器件域 `APP_INA226_*`**：这些不是门限（门限一律 `APP_BMS_*`，§12.7），
+ * 而是"把一颗 16 位 ADC 的原始码换回本项目内部量纲"的定标参数 ⇒ ⛔ 不得与任何阈值混用。
+ *
+ * ★ 手写量只有三样：**分流器阻值、1 LSB 代表的电流、三个编码**；其余全部**反算**。
+ *   这条纪律来自 C-104（"按设计值算的断言只证明自洽，不证明寄存器里就是这个数"）：
+ *   凡是能由编码/阻值推出来的数，⛔ 一律不许另外手写一份。 */
+
+/* 分流器：★ 模块出厂是 R100 = **100mΩ**，D10 开工第一件事就是换成 **5mΩ**（Kelvin 四线）。
+ * 它与 `Tech_Design.md` §3.1 的 AFE `Rsns` 同值，但**是两颗独立的电阻**（§3.1：不共用，
+ * 一颗喂软件、一颗喂比较器，S1 要的就是这种独立）。
+ * ⚠️ 忘了换的后果**不是**"读数变大"而是"读数变小 20 倍"（在 B+ 上永远显示"电流偏小"，
+ *   而 SOC 会把它积成一个永远充不满的电池）—— 好在更早的一道门是编译期：
+ *   `CAL = 5120000/(1000 × 100) = 51.2` 除不尽 ⇒ `ina226_cal_not_exact` 当场报错。 */
+#define APP_INA226_RSHUNT_MOHM      5u
+
+/* 电流寄存器 1 LSB 代表的电流（µA）。取 1000 = **1mA/bit**：
+ *   满量程 = 32767mA = 32.767A ≥ 设计上限 15A（由 `ina226_ifull_below_design` 守住）；
+ *   分流器电压那一路的物理上限则是 ±81.92mV / 5mΩ = ±16.384A（断言在 `ina226.c`）。
+ * ⚠️ 1mA 这个粒度不是随便取的 —— 它是让 CAL 落到整数 1024 的那个值。⛔ 不要"顺手"改细：
+ *   改成 100µA ⇒ 满量程掉到 3.2767A，**连额定放电 5A 都测不到**（`ina226_ifull_below_design` 会响）；
+ *   改成 10µA ⇒ CAL = 102400 超 15 位（`ina226_cal_range` 会响）。 */
+#define APP_INA226_I_LSB_UA         1000u
+
+/* CAL = 0.00512 / (Current_LSB[A] × R[Ω])。把分母换成 µA×mΩ 后 =
+ *   0.00512 / (I_LSB_uA × 1e-6 × R_mΩ × 1e-3) = 0.00512 × 1e9 / (I_LSB_uA × R_mΩ)
+ *   = **5120000 / (I_LSB_uA × R_mΩ)**   （当场推：1e-6 × 1e-3 = 1e-9，1/1e-9 = 1e9，
+ *                                          0.00512 × 1e9 = 5.12e6 ✓）
+ * R=5mΩ、1mA/bit ⇒ 5120000/5000 = **1024**（整除）。 */
+#define APP_INA226_CAL              (5120000u / (APP_INA226_I_LSB_UA * APP_INA226_RSHUNT_MOHM))
+
+/* ★ 转换时序：**手写的是编码，时间是查表反算**（同 §11.1 的 `APP_IWDG_PR` 口径）。
+ *   手册 §7.5 给的 8 档**不是等比数列**（140/204/332/588/1100/2116/4156/8244）⇒
+ *   ⛔ 不许写成 `140 × 2^code` 这种"看着像"的公式：它在 code=1~3 上会算出比真值大的数，
+ *   于是"窗口够用"的断言可能对着一个**不存在的窗口**成立 —— 那正是 C-104 的原始病
+ *   （按想象出来的关系算出一个谁也没验证过的窗口）。 */
+#define APP_INA226_AVG_CODE         1u      /* 平均次数编码 → 4 次 */
+#define APP_INA226_VSHCT_CODE       4u      /* 分流器电压转换时间编码 → 1100µs */
+#define APP_INA226_VBUSCT_CODE      4u      /* 总线电压转换时间编码 → 1100µs */
+#define APP_INA226_AVG_COUNT        (1u << (2u * APP_INA226_AVG_CODE))  /* 1/4/16/64/128/256/512/1024 */
+#define APP_INA226_CONV_US(code) \
+    (((code) == 0u) ? 140u  : ((code) == 1u) ? 204u  : ((code) == 2u) ? 332u  : \
+     ((code) == 3u) ? 588u  : ((code) == 4u) ? 1100u : ((code) == 5u) ? 2116u : \
+     ((code) == 6u) ? 4156u : 8244u)
+/* 一次完整刷新 = 平均次数 × (分流器转换 + 总线转换)：连续模式下两通道交替（手册 §6.4.1） */
+#define APP_INA226_REFRESH_US \
+    (APP_INA226_AVG_COUNT * (APP_INA226_CONV_US(APP_INA226_VSHCT_CODE) + \
+                             APP_INA226_CONV_US(APP_INA226_VBUSCT_CODE)))
+
+/* ★ 电流通道的刷新预算。出处 = `PRD.md` §1.3 冗余表那句"CC 刷新 250ms 不满足
+ *   `FR-ACQ-02` 的 20ms" ⇒ **20ms 是电流通道的刷新上限**。
+ *   当前配置 = 4 × (1100 + 1100) = **8800µs ≤ 20000µs** ✓。
+ * ⚠️ 两条边界必须跟着说：**a)** 这是**器件内部**的刷新能力，⛔ 不等于"快照里电流的刷新率"——
+ *   后者由 TaskAcq 周期（今天 `APP_PERIOD_ACQ_MS` = 100ms）决定，D10 接线时那一笔要单独对账；
+ *   **b)** 上电自检读到的第一帧可能是"配置生效前"的那次转换（见 `ina226_selftest()` 注），
+ *   所以"器件能 8.8ms 出一帧"这件事⛔ 不能由"自检打印了一个数"来证明。 */
+#define APP_INA226_REFRESH_BUDGET_US 20000u
+
+/* ★ 第二形态容差（单位 10mA）：分流器电压反算与电流寄存器反算之差。
+ *   理论残差 ≤ 1 个单位（形态 1 量化 0.5mA ＋ 形态 2 量化 1mA，且器件内部计算会截断）
+ *   ⇒ 取 2 个单位 = 20mA，远小于 D10 互校判据的 1%（5A 上 = 50mA）。
+ * ⛔ 不得为了让某一次读数"过关"而放大它 —— 这个数是"两条独立通路是否自洽"的尺子，
+ *   把它放大的同时消失掉的，正是"CAL 写错""分流器阻值与宏不符"这两类错误的可见性
+ *   （`AGENTS.md` §2.3 C-110 同族：判据被调松之后，故障与"没事"长得一模一样）。 */
+#define APP_INA226_XCHECK_10MA      2
+
+APP_STATIC_ASSERT(APP_INA226_AVG_CODE    <= 7u, ina226_avg_code_overflow);
+APP_STATIC_ASSERT(APP_INA226_VSHCT_CODE  <= 7u, ina226_vshct_code_overflow);
+APP_STATIC_ASSERT(APP_INA226_VBUSCT_CODE <= 7u, ina226_vbusct_code_overflow);
+/* ★ 下面三条全部按"真正写进寄存器的编码"算，⛔ 不按"我想用多少 µs"算（C-104 的原文纪律） */
+APP_STATIC_ASSERT(APP_INA226_REFRESH_US <= APP_INA226_REFRESH_BUDGET_US, ina226_refresh_over_budget);
+APP_STATIC_ASSERT(APP_INA226_CONV_US(APP_INA226_VSHCT_CODE)  >= 140u,    ina226_vshct_code_min);
+APP_STATIC_ASSERT(APP_INA226_CONV_US(APP_INA226_VBUSCT_CODE) >= 140u,    ina226_vbusct_code_min);
+/* ★ 定标三连：除不尽 = 静默的系统性增益误差（同 §12.10.1 那条"余数非 0 ⇒ 定点除法悄悄
+ *   向下取整"）；CAL 只有 15 位（手册标 `0x7FFF`）；电流满量程必须盖住设计上限。 */
+APP_STATIC_ASSERT((5120000u % (APP_INA226_I_LSB_UA * APP_INA226_RSHUNT_MOHM)) == 0u, ina226_cal_not_exact);
+APP_STATIC_ASSERT(APP_INA226_CAL >= 1u && APP_INA226_CAL <= 32767u,                  ina226_cal_range);
+APP_STATIC_ASSERT((APP_INA226_I_LSB_UA * 32767u) / 1000u >= APP_DESIGN_CURRENT_MA,    ina226_ifull_below_design);
+
+/* ---------- 12.13 Modbus RTU 从机 / 板载 RS485（★ `Tech_Design.md` §6.1 与 §4.3 注②的代码落点） ----------
+ * 命名空间 = `APP_MB_*`（协议面）+ `APP_485_*`（物理层）。⛔ 与任何门限域（`APP_BMS_*` / `APP_ENV_*`）无关。
+ * ★ 下面每一个数值的唯一来源都写在它自己那一行，⛔ **不得在本段引入新数值**。 */
+
+/* 从机地址与波特率（§6.1 物理层表 + 0x0302/0x0303 两行） */
+#define APP_MB_ADDR_DEFAULT     1u          /* §6.1「从机地址 默认 1（1~247 可配）」 */
+#define APP_MB_ADDR_MIN         1u          /* ⚠️ 0 是广播地址，⛔ 不能配成从机地址 */
+#define APP_MB_ADDR_MAX         247u
+#define APP_MB_BAUD_CODE_9600   0u          /* §6.1 的 0x0303 编码口径 */
+#define APP_MB_BAUD_CODE_19200  1u
+#define APP_MB_BAUD_CODE_38400  2u
+#define APP_MB_BAUD_CODE_MAX    APP_MB_BAUD_CODE_38400
+#define APP_MB_BAUD_9600        9600u
+#define APP_MB_BAUD_19200       19200u
+#define APP_MB_BAUD_38400       38400u
+#define APP_MB_BAUD_DEFAULT     APP_MB_BAUD_19200       /* §6.1「默认 19200 8N1」 */
+#define APP_MB_BAUD_CODE_DEFAULT APP_MB_BAUD_CODE_19200
+
+/* ★ 帧长上限 = Modbus RTU 的 ADU 上限 **256 字节**（地址 1 + PDU 最多 253 + CRC 2）。
+ * 算例（本协议表里最长的一帧 = 0x10 写 123 个寄存器）：1 + 1 + 2 + 2 + 1 + 246 + 2 = 255 ✓。
+ * ⛔ 一端都不许挪：调小 = 合法的长帧被截断（表现为"偶发 CRC 错"，最难查的一类）；
+ *    调大 = 给一个协议上不存在的帧留缓冲，且 RX DMA 缓冲尺寸也要跟着变。 */
+#define APP_MB_ADU_MAX          256u
+
+/* ★（12.13.1）帧边界机制与 T3.5 的关系 —— **本段是一条口径，不是一个参数**，所以必须写明：
+ *   19200 8N1 下 1 个字符 = 10 位 ÷ 19200 = **520.8µs** ⇒ Modbus 的 T3.5 = **1823µs**。
+ *   ★ 本版按 §4.3 注② 用 **USART IDLE 中断**判帧（"IDLE 中断 + DMA 收帧"）。
+ *     ⚠️ 但 IDLE 标志的硬件条件是"线路静默 ≥ 1 个字符时间"（≈521µs），**不是** T3.5(1823µs)。
+ *     ⇒ 两者**不等价**：若主机在帧中间留出 >521µs 的间隙，本版会把一帧切成两帧，两段各自
+ *       CRC 不过 ⇒ **从机保持沉默**（Modbus 的正确失效方向：解析不了就不回）。
+ *     ⇒ ★ 这条差别的**唯一验收方式**是台架用第三方主机跑背靠背连续帧（见 `Build.md` 的 D9 判据），
+ *       ⛔ 不得用"IDLE 是硬件静默检测，所以等价于 T3.5"这句话把它算掉（那是把两个数缝成一个）。 */
+#define APP_MB_CHAR_US_19200    521u        /* 1 字符 @19200 8N1 */
+#define APP_MB_T35_US_19200     1823u       /* T3.5 @19200 8N1（= 3.5 × 521，⛔ 不是 IDLE 的门限） */
+
+/* ★（12.13.2）发送前 DE（RS485 方向脚）的建立时间：置 DE 到启动 DMA 之间要留出收发器导通时间。
+ *   0.2~1µs 量级的器件取 **5µs** = 19200 下 0.01 个字符时间 ⇒ ⛔ 对帧内容没有任何影响。
+ *   ⚠️ 为什么必须 >0：DE 与启动 DMA 之间只要差哪怕几微秒，第一个起始位的**前沿**就可能落在
+ *     收发器还没导通的窗口里 ⇒ 主机收到 `0x81` 之类的错地址，现象是"偶发不应答"。 */
+#define APP_485_DE_SETTLE_US    5u
+
+/* 日志读协议（§6.1 的 0x0200~0x0241）。★ 16 而不是 64 —— 理由见 `附录C` C-117：
+ * 原表写"64 条 × 4 寄存器"（= 256 个寄存器），而给出的地址范围 0x0202~0x0241 **只有 64 个寄存器**
+ * ⇒ 三处（0x0201 的"≤64"、地址范围、正文的"64 条 × 4"）自相矛盾。本版按**可机械核对的那一侧**
+ * （地址范围 ÷ 4）收敛为 16 条，并把矛盾登记进 `附录C`（⛔ 不是"取个小的凑合"）。 */
+#define APP_MB_LOG_BATCH        16u
+
+/* 取数自检窗（§4.3 的 "Modbus 最长读 ≤100ms"）：⛔ 这是**任务自检**用的量，
+ * 不是协议判据，也不是"超时就回异常"的依据（Modbus 从机没有"我慢"这个异常码）。 */
+#define APP_MB_STEP_BUDGET_MS   100u
+
+APP_STATIC_ASSERT(APP_MB_ADDR_DEFAULT >= APP_MB_ADDR_MIN && APP_MB_ADDR_DEFAULT <= APP_MB_ADDR_MAX,
+                  mb_addr_default_out_of_range);
+APP_STATIC_ASSERT(APP_MB_BAUD_CODE_DEFAULT <= APP_MB_BAUD_CODE_MAX, mb_baud_code_default_out_of_range);
+/* ★ ADU 上限是协议常数（256），⛔ 不许"为了省 RAM"改小 —— 改了会静默截断合法长帧 */
+APP_STATIC_ASSERT(APP_MB_ADU_MAX == 256u, mb_adu_not_canonical);
+/* 一次日志读返回的寄存器数必须落在地址范围内（0x0202~0x0241 = 64 个寄存器） */
+APP_STATIC_ASSERT(APP_MB_LOG_BATCH * 4u <= 64u, mb_log_block_over_address_range);
+/* T3.5 必须**大于**一个字符时间（3.5 倍），否则"帧间静默"这个判据自相矛盾 */
+APP_STATIC_ASSERT(APP_MB_T35_US_19200 > APP_MB_CHAR_US_19200, mb_t35_not_above_char_time);
+/* DE 建立时间必须远小于一个字符时间，否则"准备时间"会吃掉帧头 */
+APP_STATIC_ASSERT(APP_485_DE_SETTLE_US * 20u < APP_MB_CHAR_US_19200, mb_de_settle_too_long);
 
 /* ==================== 13. 内部 Flash 分区（★ 地址的唯一来源） ====================
  * 设计依据与"为什么这么分"见 `Tech_Design.md` §8；本节只回答"每一页归谁、地址多少"。
