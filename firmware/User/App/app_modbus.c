@@ -9,6 +9,7 @@
  */
 
 #include "./App/app_modbus.h"
+#include "./App/app_cfg.h"      /* ★ 2026-09-29：门限参数区（§8 协议 / 附录C C-121） */
 #include "./App/app_config.h"
 #include "./App/app_data.h"
 #include "./App/app_protect.h"
@@ -36,6 +37,20 @@ APP_STATIC_ASSERT(MB_ACT_BIT_PRE == ACT_ST_PRE, mb_act_bit_pre_mismatch);
 #define MB_MAX_COILS            2000u
 
 /* ===================== 模块状态 ===================== */
+/* ★ 门限参数区（§8 协议 (5)）：状态格与命令格的 RAM 镜像 */
+#define MB_PARAM_VER            0x0100u     /* 只读：结构版本 */
+#define MB_PARAM_SEQ_HI         0x0101u     /* 只读：提交序号高 16 位 */
+#define MB_PARAM_SEQ_LO         0x0102u     /* 只读：提交序号低 16 位 */
+#define MB_PARAM_FIRST          0x0103u     /* ★ 参数表第 0 项（与 §8 分组表逐格对齐） */
+
+/* ★★ 2026-09-29：把"§6.1 的 80 格"与"`app_cfg.h` 的参数表"**机械地钉在一起** ——
+ * 这正是验收轮提的第 4 条（"§6.1 与实现的一致性只有人工对表、没有判据"）的落点。
+ * 口径来源 = `Tech_Design.md` §8 协议 (5) 的分组表：状态 3 格（0x0100~0x0102）+ 参数 65 格
+ * （0x0103~0x0143）+ 预留 12 格（0x0144~0x014F）= 80。⛔ 改参数表项数会在这里报错。 */
+APP_STATIC_ASSERT(APP_CFG_COUNT == 65u,                              mb_param_count_changed);
+APP_STATIC_ASSERT((MB_PARAM_FIRST + APP_CFG_COUNT - 1u) == 0x0143u,  mb_param_block_mismatch);
+APP_STATIC_ASSERT((0x0143u + 1u) == APP_CFG_MODBUS_RESERVED,         mb_param_reserved_gap);
+
 static uint8_t  s_addr          = APP_MB_ADDR_DEFAULT;
 static uint8_t  s_baud_code     = APP_MB_BAUD_CODE_DEFAULT;
 static uint8_t  s_baud_pending  = 0xFFu;            /* 0xFF = 没有待切换的波特率 */
@@ -67,6 +82,12 @@ static uint16_t s_log_cache[APP_MB_LOG_BATCH * 4u];
 
 /* 取证计数（⛔ 不参与任何判据；口径见 `app_modbus.h`） */
 static uint32_t s_c_rx, s_c_answered, s_c_crc, s_c_mismatch, s_c_exc, s_c_txerr;
+
+static uint16_t s_cfg_seq_hi;
+static uint16_t s_cfg_seq_lo;
+static uint8_t  s_cfg_pending_seen;         /* 提交是否已排队（给 0x0304 的读回用） */
+static uint8_t  s_restore_armed;            /* 0x5F 的二次确认"上膛"标志 */
+static uint32_t s_restore_tick;
 
 /* ===================== 小工具 ===================== */
 
@@ -322,8 +343,13 @@ static uint8_t mb_reg_read(uint16_t a, uint16_t *v, uint32_t now_ms)
             a2 = mb_age_ms(r->tick_ms_cell, now_ms); if (a2 > worst) { worst = a2; }
             a2 = mb_age_ms(r->tick_ms_curr, now_ms); if (a2 > worst) { worst = a2; }
 
+            /* ★ 参与集合 = **有属主的测点**（§4.4 v3.50 裁决 ⑤），⛔ 不是「前 N 个活跃点」。
+             *   否则设备尚未接入时，一个**从未更新**的读数会把整个新鲜度拉到 `0xFFFF`，
+             *   而它和“通道真的死了”在上位机上**同形** ⇒ 用一个真实但无用的读数掩盖真问题。 */
             for (idx = 0u; idx < (uint8_t)APP_BMS_TEMP_ACTIVE_COUNT; idx++)
             {
+                if ((APP_TEMP_OWNER_MASK & (uint16_t)(1u << idx)) == 0u) { continue; }
+
                 a2 = mb_age_ms(r->tick_ms_temp[idx], now_ms);
 
                 if (a2 > worst)
@@ -339,18 +365,45 @@ static uint8_t mb_reg_read(uint16_t a, uint16_t *v, uint32_t now_ms)
         /* ---- 0x0031 / 0x0032：降额请求状态 / 开关两端压差 ---- */
         case 0x0031u: *v = (uint16_t)al->derate_state;                 return 1u;
         case 0x0032u: *v = ((r->v_sw_valid != 0u) ? r->v_sw_10mv : (uint16_t)APP_MV_INVALID); return 1u;
+        /* ---- 0x0033：电芯表面温度 #2（§6.1 预留区第一格，2026-09-29 落地）
+         *   ★ 为什么不放进 `0x0013~0x0014` 块：那会把 `0x0014`（环境）的含义改掉
+         *     或把 SOC 以后的寄存器全重编号 ⇒ 对已发布协议改义（`Tech_Design.md` §4.4 v3.50）。
+         *   ★ 无效码纪律与单体/温度同：未写入 ⇒ `0xFFFF`（⛔ 不是 0）0 是合法读数且是**禁充**判据）。 */
+        case 0x0033u: *v = (((r->temp_valid & (uint16_t)(1u << APP_TEMP_IDX_CELL_NTC2)) != 0u)
+                            ? (uint16_t)r->temp_x10[APP_TEMP_IDX_CELL_NTC2] : (uint16_t)APP_MV_INVALID);
+                      return 1u;
 
         /* ---- 0x0200~0x0241：日志读协议（写 0x0200 之后才有内容） ---- */
         case 0x0200u: *v = s_log_req;                                  return 1u;
         case 0x0201u: *v = s_log_n;                                    return 1u;
 
+        /* ★ 门限参数区（§8 协议 (5)）：0x0100~0x0102 = 只读状态；0x0103 起 = 参数表逐项 */
+        case MB_PARAM_VER:      *v = (uint16_t)APP_CFG_VER;             return 1u;
+        case MB_PARAM_SEQ_HI:   *v = s_cfg_seq_hi;                      return 1u;
+        case MB_PARAM_SEQ_LO:   *v = s_cfg_seq_lo;                      return 1u;
+
         case 0x0300u: *v = MB_FW_VER_PACKED;                           return 1u;
         /* ⚠️ 0x0301 = 参数区版本 + CRC 状态：**参数区不存在** ⇒ 回 0xFFFF（无效），
          *     ⛔ 不回 0（回 0 等于说"参数区版本 0 且 CRC 通过"，那是一句假话）。 */
-        case 0x0301u: *v = 0xFFFFu;                                    return 1u;
+        case 0x0301u:
+            /* ★ 参数区状态（§8 协议 (2)/(5)）：bit0=A 坏 / bit1=B 坏 / bit2=拒绝启动(两区都坏 或 校验不过)，
+             *   高 8 位 = 结构版本。0x0000 = 当前无损坏。⛔ 落码前回 0xFFFF（"无效"），⛔ 不回 0。 */
+            {
+                uint8_t  bs = 0u, bm = 0u;
+                uint32_t sq = 0u;
+
+                app_cfg_status(&bs, &sq, &bm);
+                *v = (uint16_t)(((uint16_t)APP_CFG_VER << 8) |
+                                ((uint16_t)bm & 0x0003u) |
+                                ((bs == APP_CFG_BOOT_LATCHED) ? 0x0004u : 0x0000u));
+            }
+            return 1u;
         case 0x0302u: *v = (uint16_t)s_addr;                           return 1u;
         case 0x0303u: *v = (uint16_t)s_baud_code;                      return 1u;
-        case 0x0304u: *v = 0x0000u;                                    return 1u;   /* 无待提交命令 */
+        case 0x0304u:
+            /* ★ 提交/恢复命令的**可读回状态**：0 = 无待提交，1 = 提交已排队，2 = 恢复默认已"上膛" */
+            *v = (uint16_t)((s_restore_armed != 0u) ? 2u : ((s_cfg_pending_seen != 0u) ? 1u : 0u));
+            return 1u;
         case 0x0305u: *v = (uint16_t)((APP_LOG_FMT_VER << 8) | APP_LOG_SLOT_SIZE); return 1u;
 
         default:
@@ -412,8 +465,15 @@ static uint8_t mb_reg_write(uint16_t a, uint16_t v)
             {
                 return MB_EXC_ILLEGAL_VALUE;        /* 0 是广播地址，⛔ 不能配成从机地址 */
             }
+
+            /* ★ 2026-09-29：**先进参数区（RAM），再由 `0x0304` 提交落盘** —— 这笔债（"只存在于 RAM"）
+             *   就此还掉；上电时 `app_modbus_init()` 反过来**从参数区取初值**（见那里）。 */
+            if (app_cfg_set(APP_CFG_IDX_MB_ADDR, v) != APP_CFG_OK)
+            {
+                return MB_EXC_ILLEGAL_VALUE;
+            }
+
             s_addr = (uint8_t)v;
-            /* ⚠️ 只改 RAM：掉电回到 `app_config.h` 的默认值（文件头边界 a，登记为债务） */
             return 0u;
 
         case 0x0303u:
@@ -425,10 +485,53 @@ static uint8_t mb_reg_write(uint16_t a, uint16_t v)
              *   切换动作排在"回帧发完"之后（`app_modbus_step()` 尾部）——
              *   ⛔ 当场切的后果 = 响应前半段用新波特率、后半段用旧 ⇒ 主机必然 CRC 错，
              *   而现象是"改波特率之后从机就失联了"，看起来像参数没生效。 */
+            if (app_cfg_set(APP_CFG_IDX_MB_BAUD_CODE, v) != APP_CFG_OK)
+            {
+                return MB_EXC_ILLEGAL_VALUE;
+            }
+
             s_baud_pending = (uint8_t)v;
             return 0u;
 
+        case 0x0304u:
+            /* ★ 提交命令（§8 协议 (3)）：0xA5 = 提交；0x5F = 恢复默认（**二次确认**：连写两次，
+             *   10s 内有效）。⛔ 本函数**不写 Flash** —— 只置待提交标志，真正的擦写在
+             *   `app_cfg_poll()` 里、且只在 `SAFE_OFF` 时（`TaskLog` 执行）。 */
+            if (v == 0xA5u)
+            {
+                s_restore_armed = 0u;
+                return (app_cfg_commit_request() == APP_CFG_OK) ? 0u : MB_EXC_ILLEGAL_VALUE;
+            }
+
+            if (v == 0x5Fu)
+            {
+                if ((s_restore_armed != 0u) && ((uint32_t)(HAL_GetTick() - s_restore_tick) <= 10000u))
+                {
+                    s_restore_armed = 0u;
+                    return (app_cfg_restore_defaults() == APP_CFG_OK) ? 0u : MB_EXC_ILLEGAL_VALUE;
+                }
+
+                s_restore_armed = 1u;               /* 第一次：上膛（读 `0x0304` 应为 2） */
+                s_restore_tick  = HAL_GetTick();
+                return 0u;
+            }
+
+            return MB_EXC_ILLEGAL_VALUE;
+
         default:
+            /* ★ 门限参数格的写通路（0x0103~0x0143）。`app_cfg_set()` 内部做**单项范围 + 跨项不等式**
+             *   两道校验（§8 协议 (4)：S7 的编译期断言只管默认值自洽，现场改出来的值必须运行期再校）。
+             *   ⛔ 校验不过**拒绝写入并回异常码**，而不是"存进去运行时不管"。 */
+            if ((a >= MB_PARAM_FIRST) && (a <= (uint16_t)(MB_PARAM_FIRST + APP_CFG_COUNT - 1u)))
+            {
+                uint8_t rc = app_cfg_set((uint16_t)(a - MB_PARAM_FIRST), v);
+
+                if (rc == APP_CFG_OK)               { return 0u; }
+                if (rc == APP_CFG_ERR_PARAM)        { return MB_EXC_ILLEGAL_ADDR; }
+
+                return MB_EXC_ILLEGAL_VALUE;        /* RANGE / CROSS 都归"非法数据值" */
+            }
+
             return MB_EXC_ILLEGAL_ADDR;
     }
 }
@@ -774,8 +877,17 @@ static uint16_t mb_handle(const uint8_t *req, uint16_t reqlen, uint8_t *out, uin
 
 uint8_t app_modbus_init(uint32_t baud)
 {
-    s_addr      = APP_MB_ADDR_DEFAULT;
-    s_baud_code = APP_MB_BAUD_CODE_DEFAULT;
+    /* ★★ 2026-09-29：**初值来自参数区**（`app_cfg`），⛔ 不再直接用编译期默认值 ——
+     *   这才是"可配置"（§6.1 的 `0x0302`/`0x0303` 那两格）真正闭环的另一半：
+     *   写 → 提交落盘 → 上电 → 从这里取回来。⚠️ `app_cfg_load()` 必须**已经跑过**
+     *   （`app_main.c` 里排在 `app_modbus_init()` 之前）；它保证取回的值已过范围与跨项校验。 */
+    s_addr      = (uint8_t)app_cfg_get(APP_CFG_IDX_MB_ADDR);
+    s_baud_code = (uint8_t)app_cfg_get(APP_CFG_IDX_MB_BAUD_CODE);
+
+    /* ⚠️ 参数区里若存的不是默认波特率，本次**入参 `baud` 就按参数区改**（否则"配了 38400、
+     *   上电却按 19200 起"⇒ 主机连不上，而现象与"参数没生效"同形）。 */
+    if (s_baud_code == APP_MB_BAUD_CODE_9600)  { baud = APP_MB_BAUD_9600;  }
+    if (s_baud_code == APP_MB_BAUD_CODE_38400) { baud = APP_MB_BAUD_38400; }
     s_log_req   = 0u;
     s_log_n     = 0u;
     s_c_rx = s_c_answered = s_c_crc = s_c_mismatch = s_c_exc = s_c_txerr = 0u;
@@ -785,6 +897,19 @@ uint8_t app_modbus_init(uint32_t baud)
 
 void app_modbus_step(uint32_t now_ms)
 {
+    /* ★ 参数区状态镜像：每拍刷一次，供 `0x0100~0x0102`（版本/序号）与 `0x0304`（待提交）读回。
+     *   ⛔ 只读 `app_cfg` 的 getter，⛔ 不改它的任何状态 —— 写者仍然只有 `TaskLog` 一处。 */
+    {
+        uint8_t  bs = 0u, bm = 0u;
+        uint32_t sq = 0u;
+
+        app_cfg_status(&bs, &sq, &bm);
+        (void)bs; (void)bm;
+        s_cfg_seq_lo       = (uint16_t)(sq & 0xFFFFu);
+        s_cfg_seq_hi       = (uint16_t)(sq >> 16);
+        s_cfg_pending_seen = app_cfg_commit_pending();      /* ★ 待提交状态（0x0304 读回） */
+    }
+
     uint16_t n;
     uint16_t rn;
 

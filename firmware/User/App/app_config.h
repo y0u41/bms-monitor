@@ -43,7 +43,7 @@
 
 #if !defined(APP_WIFI_SSID) || !defined(APP_WIFI_PWD) || !defined(ONENET_PID) \
     || !defined(ONENET_DEVICE) || !defined(ONENET_TOKEN)
-#error "app_config_local.h 缺少凭据: 必须定义 APP_WIFI_SSID / APP_WIFI_PWD / ONENET_PID / ONENET_DEVICE / ONENET_TOKEN"
+#error "app_config_local.h missing credentials: define APP_WIFI_SSID / APP_WIFI_PWD / ONENET_PID / ONENET_DEVICE / ONENET_TOKEN"
 #endif
 
 /* ============================ 5. OneNET 接入参数 ============================ */
@@ -198,6 +198,22 @@
 #define APP_PRIO_LOG            1
 #define APP_PRIO_UI             1
 
+/* ==========================================================================
+ * ★★ 串口打印路径（v0.65「整行单写者」）—— 参数单一来源
+ *   背景：调度器接管之后 `printf` 是**多个任务共享的一个字节流**，而 `fputc` 是逐字节写寄存器
+ *   ⇒ 高优先级任务可以在**一行中间**抢占 ⇒ 日志被劈开（`清单` §7 登记的那笔债）。
+ *   做法：调度器启动后，每个"生产者"（按任务句柄惰性分配）各有一条行缓冲，遇 '\n' 或缓冲满
+ *   才**整行一次性**写出；抢不到"整行写者"令牌就**整行丢弃并计数**（⛔ 不阻塞、⛔ 不交错）。
+ *   ⚠️ 开机段（调度器未启动）**仍然是直接逐字节写** ⇒ boot 输出与旧版逐字节相同。
+ *   ⚠️ 代价：争夺激烈时会丢行，但**丢行是可数的**（`usart_retarget.c` 的 `s_print_drops`）。
+ * ========================================================================== */
+#define APP_PRINT_LINE_MAX      128     /* 单行缓冲（字节）：含 '\r'；>127 的行会被切段（可数）。
+                                        * ★ v0.68 由 96 抬到 128：实测 `s` 状态行本身 96 字符
+                                        *   ⇒ 正好触发一次切段（`print_split=1`）—— 状态行自己必须原子。 */
+#define APP_PRINT_SLOTS         6       /* 生产者槽位（够 5 个任务 ＋ 余量）；用尽则退化直写（可数） */
+#define APP_BOOTLOG_BUF         4096    /* ★ 上电段打印原文的 RAM 缓存（真冷启动抓不到开机行 ⇒ 串口随时回放）。
+                                        * ⚠️ 实测开机段 ≈3.1KB ⇒ 1KB 会截断（`ovf=1`），4KB 装得下；满了置位、⛔ 不覆盖。 */
+
 #define APP_PERIOD_PROTECT_MS   10      /* 保护状态机 + 使能输出 + ALERT 响应 */
 #define APP_PERIOD_ACQ_MS       100     /* 采集与滤波 */
 #define APP_PERIOD_COMM_MS      10      /* Modbus 收帧/回帧（C-04） */
@@ -274,7 +290,9 @@
 /* ---------- 12.1 电池规模（冻结规格见 PRD.md §1.2，此处只做编译期落地） ---------- */
 #define APP_CELL_COUNT          4                   /* ★ 当前串数：4S 磷酸铁锂 */
 #define APP_CELL_COUNT_MAX      16                  /* 数组按最大预留 = Modbus 单体块 0x0000~0x000F，改宏不改结构体 */
-#define APP_BMS_TEMP_ACTIVE_COUNT   2                   /* 使用中测点：[0]=电芯表面 NTC #1、[1]=SHT30 环境（索引宏见 app_data.h） */
+#define APP_BMS_TEMP_ACTIVE_COUNT   3                   /* 使用中测点：[0]=NTC#1、[1]=环境、[2]=NTC#2
+                                                 *   ★ 2026-09-29 由 2 → 3（`Tech_Design.md` §4.4 v3.50 裁决 ③）。
+                                                 *   ⚠️ 不等于「判据集合」：极值只看 `APP_TEMP_CELL_MASK`。 */
 #define APP_BMS_TEMP_COUNT_MAX      8                   /* 数组按最大预留（以后加 NTC 不改结构体） */
 /* ⚠️ **D11 必须重新裁决上面这个数**（`附录C` C-48 / `Tech_Design.md` §4.4 ④）：C-48 已把 **PA6 提为"NTC #2 必用"**
  *   （`PRD.md` FR-SOC-05 要"温差 / 最高最低温度"，单路算不出温差，且环境温度不能替代电芯测点）⇒ 实际测点 = **3**，
@@ -298,7 +316,7 @@
 #define APP_AFE_CHIP_BQ76952    0                   /* 3~16S，P2 升级路径 */
 
 #if (APP_AFE_CHIP_BQ76920 + APP_AFE_CHIP_BQ76940 + APP_AFE_CHIP_BQ76952) != 1
-#error "AFE 型号必须且只能选一个"
+#error "AFE chip type: exactly one of the APP_AFE_CHIP_* switches must be selected"
 #endif
 
 #define AFE_CHIP_MIN_CELLS      (APP_AFE_CHIP_BQ76920 ? 3u : (APP_AFE_CHIP_BQ76940 ? 9u : 3u))
@@ -475,6 +493,14 @@ APP_STATIC_ASSERT(APP_IWDG_REAL_MS       >= (APP_WDG_CHECK_MS * 2u), iwdg_real_w
                                              * （`附录C` · C-70；PRD §2.3 已同步为 1280ms）。
                                              * 1280ms 仍 > 软件三级 1000ms ⇒ C-14 不破。 */
 
+/* ★★ 2026-09-30：串口触发「整份导出日志」（还 `附录C` C-101 那笔"没有主人的导出函数"）。
+ *   ★ 用法：打开串口(115200) → **复位板子** → 在窗口内按一下回车 ⇒ 串口打出整份日志。
+ *   ★ 窗口为什么是 250ms：启动行的 IWDG 是 `rlr=4095 -> 424ms` ⇒ **必须显著短于它**；
+ *     且本段**不喂狗**（全工程只有一处条件喂狗，⛔ 不在这里开第二个口子）。
+ *   ★ 把 `APP_LOGDUMP_ON_BOOT` 置 0 即可整个关掉（例如长稳期间）。 */
+#define APP_LOGDUMP_ON_BOOT         1u
+#define APP_LOGDUMP_WINDOW_MS       250u
+
 /* 12.7.5 误报抑制（FR-ALM-06）+ 分级确认窗（PRD §2.3 底部★） */
 #define APP_BMS_CONFIRM_MS          3000    /* 一级/二级的连续越界确认窗 */
 #define APP_BMS_DEBOUNCE_L3_MS      200     /* ★ 三级不得用 3s 窗（与"动作 ≤1s"矛盾）→ ≤200ms 去抖 */
@@ -615,10 +641,17 @@ APP_STATIC_ASSERT(APP_CTR_PRECHARGE_DV_MV <
  *                        N=4 @100ms 即 150ms ≤ PRD 的 200ms 上限；⛔ 保护与"电流突变"
  *                        判据必须取**未平均的原始值**）
  *
- * ⚠️ **D7 前必须裁决的冲突（不在此处擅自解决）**：`bms_raw_t` 每通道只有**一个**值字段
- *   （`curr_10ma` / `cell_mv[]`），而 PRD:193 要求"原始值喂保护 + 滤波值喂 SOC/显示"**同时存在**。
- *   要么扩快照结构（§4.4 数据模型改动 = G4，Modbus 映射要说明取哪一个），
- *   要么滤波只发生在 `app_acq` 内部、原始值另走一条口给 `app_protect`。D7 动工前定。 */
+ * ✅ **2026-09-29 裁决已定（`Tech_Design.md` §4.4 末「原始值 / 滤波值」段 / `附录C` C-120 / `Build.md` §8.36）**：
+ *   原文那两个选项**都不取** ——
+ *   ① **`bms_raw_t` 语义冻结为"原始值（未滤波）"、字段零改动**（它是 `app_protect` 的唯一取数口
+ *      ⇒ 把"保护不吃滤波延迟"从纪律变成**结构事实**）；
+ *   ② **滤波属主仍是 `app_acq`**，但**滤波后的 BMS 量不进 `bms_raw_t`、也不进 `bms_snapshot_t`**
+ *      —— 留在 `app_acq` 的模块内静态量里、经**只读取值口**暴露（同 `app_acq_env_*()` 三口的形态）。
+ *   ★ **之所以不必扩冻结结构**：`app_soc` 是**在 `TaskAcq` 里被调用**的（§4.4 发布机制表原文）
+ *     ⇒ 滤波值**不过任务边界** ⇒ ⛔ 不必付"改 §4.4 ＋ 改 §6.1 Modbus 映射 ＋ G4 全链对账"的代价。
+ *   ⚠️ **两条随之而来的硬口径**：**a)** 协议与界面**一律取原始值**（判据/屏/上位机必须是同一个数）；
+ *     **b)** 原始值无效 ⇒ **必须清对应滤波器的累加器**（⛔ 不得把"不可知"平滑成"已知"）。
+ *   ⚠️ 若将来出现**第二个跨任务消费者**，说明上面那条前提破了 ⇒ **重开裁决**，⛔ 不是悄悄加字段。 */
 #define APP_FILT_LPF_SHIFT      1                   /* S：每拍向目标靠近 1/2^S（1 = 一阶系数 0.5） */
 
 /* 滤波不得吃掉报警确认窗：到 63% 约需 2^S 拍，必须明显小于 `APP_ALARM_CONFIRM_MS`。

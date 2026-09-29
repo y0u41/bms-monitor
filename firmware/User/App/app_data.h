@@ -75,10 +75,26 @@ typedef enum
                                          *   D2 的假温度已删（C-98）、时间戳无人推进 ⇒ 界面显示 "--.-"、
                                          *   `BMS_LINK_NTC` 常亮 —— 这才是"还没有 NTC 硬件"的正确表达 */
 #define APP_TEMP_IDX_ENV        1       /* 环境温度 = SHT30（D3 落地，写者 app_acq） */
+#define APP_TEMP_IDX_CELL_NTC2  2       /* 电芯表面 NTC #2（PA6 = ADC1_IN6，D11 落地）
+                                         *   ★ 为什么不放在 [1]：[1] 已经是环境（已交付的 `0x0014`），
+                                         *   改它的含义 = 对已发布协议静默改义（`Tech_Design.md` §4.4 v3.50 裁决）。 */
+
+/* ★★ 两个**集合**（§4.4 v3.50 裁决）—— 它们回答的是两个不同的问题，⛔ 不能合并：
+ *   ① `APP_TEMP_CELL_MASK`  = 「**保护判据**该看哪几路」 ⇒ 只有**电芯测点**（环境 ⛔ 不进，§3.2 明写它不能替代电芯测点）；
+ *   ② `APP_TEMP_OWNER_MASK` = 「**新鲜度**该等哪几路」 ⇒ 只等**有属主**的测点（写者存在即可）。
+ *   ★ 两者容易被当成一回事：把「前 N 个活跃点」当成判据集合，会让**环境温度参与电芯温差**（切断级判据）；
+ *   把「有属主」当成「有数据」，又会把“设备未接”消成一个正常时间戳。 */
+#define APP_TEMP_CELL_MASK      ((uint16_t)((1u << APP_TEMP_IDX_CELL_NTC) | (1u << APP_TEMP_IDX_CELL_NTC2)))
+#define APP_TEMP_OWNER_MASK     ((uint16_t)((1u << APP_TEMP_IDX_CELL_NTC) | (1u << APP_TEMP_IDX_ENV) | (1u << APP_TEMP_IDX_CELL_NTC2)))
 
 /* ==================== 三张核心结构体（字段与 §4.4 逐字一致） ==================== */
 
-/* 采集层输出：只由 TaskAcq 写，其余模块只读 */
+/* 采集层输出：只由 TaskAcq 写，其余模块只读
+ * ★★ 语义冻结（2026-09-29 裁决，`Tech_Design.md` §4.4 末「原始值 / 滤波值」段 / `附录C` C-120）：
+ *    **本结构只承载"原始值（未滤波）"** —— 它是 `app_protect` 的唯一取数口，而 PRD:193 明令
+ *    保护判据不得吃滑动平均的群延迟。⛔ 任何滤波量都不得加进这里；滤波值留在 `app_acq` 的
+ *    模块内静态量里、经只读取值口暴露（`app_soc` 就在 TaskAcq 内被调用 ⇒ 不过任务边界）。
+ *    ⚠️ 唯一例外 = `temp_x10[APP_TEMP_IDX_ENV]`（它存的是滤波值：那一格的消费者里没有保护判据）。 */
 typedef struct
 {
     uint16_t cell_mv[APP_CELL_COUNT_MAX];   /* ★ 无效 = APP_MV_INVALID(0xFFFF)，不是 0 */

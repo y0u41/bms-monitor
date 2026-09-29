@@ -1,0 +1,69 @@
+Warn : Transport "swd" was already selected
+Warn : [stm32f1x.cpu] target was in unknown state when halt was requested
+DUMP_START
+dumped 57344 bytes in 0.869661s (64.393 KiB/s)
+镜像: ./bms_log_flash.bin  57344 B（期望 57344）
+槽统计: 有效 2387 / 空 1162 / 损坏或未提交 7（总 3556）
+
+== 事件直方图（有效条数）==
+  EV_BOOT           374
+  EV_WDG_RESET      205
+  EV_ENV_ALARM        3
+  EV_0031             3
+  EV_0040             3
+  EV_LINK_RECOVER   530
+  EV_TASK_STALLED  1255
+  EV_00F1             3
+  EV_00F2            11
+
+== ★ C-110：EV_TASK_STALLED 按任务位图拆开数（⛔ 总条数会把"通路错"读成"从没卡过"）==
+  code=0x0008 ×    2  = Log(1)
+  code=0x0010 × 1252  = Ui/容器(1)
+  code=0x001E ×    1  = Acq(3)+Comm(2)+Log(1)+Ui/容器(1)
+  bit0 Protect(4)   出现在    0 条
+  bit1 Acq(3)       出现在    1 条
+  bit2 Comm(2)      出现在    1 条
+  bit3 Log(1)       出现在    3 条
+  bit4 Ui/容器(1)     出现在 1253 条
+  -> 带 bit0~bit3（Protect/Acq/Comm/Log —— 这四路任一卡死都会把落盘者一起饿死）**的记录** = 3 条（位出现次数之和 = 5，⛔ 不是条数）
+  ✅ 带 bit0~bit3 的记录存在 ⇒ 上面 code 含这些位的那些行就是证据（⚠️ 其中由携带通路补投的那条 `ts` 落在 RTC 同步之前，事件与载荷可信、`ts` 只当"那次开机的最早时刻"用）
+
+== 最近 12 条（按 ts_unix 排序；同 ts 按页/槽）==
+  页18 槽 89  ts=1790634469  EV_TASK_STALLED  code=0x0010 aux=(158,80)
+  页18 槽 90  ts=1790634472  EV_TASK_STALLED  code=0x0010 aux=(107,80)
+  页18 槽 91  ts=1790634487  EV_TASK_STALLED  code=0x0010 aux=(168,80)
+  页18 槽 92  ts=1790634502  EV_TASK_STALLED  code=0x0010 aux=(178,80)
+  页18 槽 93  ts=1790634505  EV_TASK_STALLED  code=0x0010 aux=(127,80)
+  页18 槽 94  ts=1790634520  EV_TASK_STALLED  code=0x0010 aux=(133,80)
+  页18 槽 95  ts=1790634533  EV_TASK_STALLED  code=0x0010 aux=(177,80)
+  页18 槽 96  ts=1790634535  EV_TASK_STALLED  code=0x0010 aux=(125,80)
+  页18 槽 97  ts=1790634538  EV_TASK_STALLED  code=0x0010 aux=(88,80)
+  页18 槽 98  ts=1790634553  EV_TASK_STALLED  code=0x0010 aux=(165,80)
+  页18 槽 99  ts=1790634566  EV_TASK_STALLED  code=0x0010 aux=(174,80)
+  页18 槽100  ts=1790634568  EV_TASK_STALLED  code=0x0010 aux=(123,80)
+
+== V7：EV_BOOT 共 374 条 ⇒ 判据"≥10 次冷上电且每次含 POR"看这张直方图 ==
+  code=0x0001 ( 1) ×  23  = PIN                     ⛔ 无 PORRSTF ⇒ 这次不是断电重上电（调试器/软件复位）
+  code=0x0003 ( 3) ×  48  = PIN+POR                 ✅ 含 PORRSTF
+  code=0x0005 ( 5) ×  95  = PIN+SFT                 ⛔ 无 PORRSTF ⇒ 这次不是断电重上电（调试器/软件复位）
+  code=0x0007 ( 7) ×   4  = PIN+POR+SFT             ✅ 含 PORRSTF
+  code=0x0009 ( 9) × 203  = PIN+IWDG                ⛔ 无 PORRSTF ⇒ 这次不是断电重上电（调试器/软件复位）
+  code=0x000D (13) ×   1  = PIN+SFT+IWDG            ⛔ 无 PORRSTF ⇒ 这次不是断电重上电（调试器/软件复位）
+  -> 含 PORRSTF 的冷上电条数 = 52 / 374
+  ⛔ **这一格不等于 V7 通过**：全区 374 条 EV_BOOT 是**跨多版固件的历史累计**（D1~D5 每次上电都记在这里，日志区从不因重烧而清）。⇒ V7 的判据必须是"**当前在板这一版**烧好之后，连续 ≥10 次断电重上电，每次 code 含 bit1(POR)"。⇒ 跑法 = 先记基线写指针"页:槽"，拔插 ≥10 次后用 `BASE_MARK=页:槽` 重跑本脚本看**增量**。
+
+== 未给 BASE_MARK ⇒ 上面全是历史累计，V7 判定不了（判据要按基线之后数）==
+
+== 判活事件的"干净尾巴"（V1/V7 的回顾性证据）==
+  EV_TASK_STALLED 总条数 = 1255，最后一条 ts = 1790634568
+  其后仍有 EV_BOOT 0 次（code: ）
+  其后 EV_WDG_RESET = 0 条
+  ⚠️ ts 的可比范围 = **同一个供电周期内**：F1 的 RTC 备份域只被掉电(POR)清，nRST/软件/狗咬三种复位都不清 ⇒ 暖复位之间 ts 连续可比；⛔ 断过电之后 ts 回到预设值，跨断电比 ts 大小无意义。
+  ⇒ 因此本行只说明"最后一次 stall 的 ts 之后又写了 N 条 BOOT"，⛔ 不构成"连续 N 次干净启动"，也不得记成 V1/V7 通过。
+  按**物理写入顺序**的最后 6 条：
+    页18 槽 95  ts=1790634533  EV_TASK_STALLED  code=0x0010
+    页18 槽 96  ts=1790634535  EV_TASK_STALLED  code=0x0010
+    页18 槽 97  ts=1790634538  EV_TASK_STALLED  code=0x0010
+    页18 槽 98  ts=1790634553  EV_TASK_STALLED  code=0x0010
+    页18 槽 99  ts=1790634566  EV_TASK_STALLED  code=0x0010
+    页18 槽100  ts=1790634568  EV_TASK_STALLED  code=0x0010

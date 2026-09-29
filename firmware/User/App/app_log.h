@@ -67,6 +67,11 @@
 #define EV_AFE_COMM_FAIL     0x0060u  /* ⏳ D7：AFE 通信连续失败（S2 失效安全入口）*/
 #define EV_HW_PROTECT        0x0070u  /* ⏳ D8：硬件层解码命中（S26）；code = hw_fault_bits */
 #define EV_LOG_CORRUPT       0x00F0u  /* 本模块自检：上电扫描发现的损坏条数（判据②的可见出口）*/
+#define EV_CFG_CORRUPT       0x00F1u  /* ★ 2026-09-29 追加：参数区不可信（`app_cfg` 三态③，进 FAULT_LATCHED）；
+                                       *   code = 坏区位图（bit0=A, bit1=B）。⛔ 不覆盖上面任何一条的语义 */
+#define EV_CFG_COMMIT        0x00F2u  /* ★ 2026-09-29 追加：参数区提交完成（A/B 切换成功）；
+                                       *   aux_a = 新提交序号**低 16 位**、aux_b = **高 16 位**
+                                       *   （32 位序号两半都要，否则高位翻转在日志里看不见） */
 
 /* ==================== 一条记录（与 Flash 槽位一一对应，去掉 CRC 与填充） ==================== */
 typedef struct
@@ -77,6 +82,14 @@ typedef struct
     uint16_t aux_a;                     /* 当时量 A：约定 = 组压 10mV（或告警时的温度 0.1℃） */
     uint16_t aux_b;                     /* 当时量 B：约定 = 电流 10mA（充正放负） */
 } app_log_rec_t;
+
+/**
+ * @brief       ★ CCITT-FALSE（poly 0x1021 / init 0xFFFF）的**全工程唯一实现**（供 `app_cfg` 复用）
+ * @param       hw / n  半字数组与半字数（半字按**小端两字节**喂进去，与 Flash 里的字节序一致）
+ * @note        ⛔ 参数区 / 日志区 / 将来任何用 CCITT 的地方都调它，⛔ 不得各写一份。
+ *              ⚠️ 与 `app_modbus.c` 的 Modbus CRC **不是同一算法**（poly 0xA001）⇒ 并存是对的。
+ */
+uint16_t app_log_crc16_hw(const uint16_t *hw, uint16_t n);
 
 /**
  * @brief       上电扫描整个日志区：定位写指针、统计有效条数、发现损坏条则汇总一条事件

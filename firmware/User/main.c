@@ -106,7 +106,10 @@ int main(void)
   {
     uint8_t r = afe_init();
 
-    printf("[AFE] init=%u%s", r, (r == AFE_OK) ? "" : " (1=NACK:先量 PE6 是否有一个 boot 脉冲, 再查 PD11/PD12 与线束)\r\n");
+    /* ★ 2026-09-30：原因串改**纯 ASCII**（本项目纪律「原因串必 ASCII」）—— 现场终端多为 UTF-8/GBK
+     *   不定的中文环境，非 ASCII 会变成 `??????`，而这一行正是 D6 到货当天要读的第一行。
+     *   ⛔ 只改字符串内容，判据一字不动。 */
+    printf("[AFE] init=%u%s", r, (r == AFE_OK) ? "" : " (1=NACK: check for one boot pulse on PE6, then PD11/PD12 and the harness)\r\n");
 
     if (r == AFE_OK)
     {

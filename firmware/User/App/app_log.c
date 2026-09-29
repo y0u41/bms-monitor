@@ -129,11 +129,18 @@ static uint16_t log_crc_step(uint16_t crc, uint8_t b)
 }
 
 /**
+ * @brief       ★ CCITT-FALSE（poly 0x1021 / init 0xFFFF）的**全工程唯一实现**
+ * @note        ★ 2026-09-29 由 `static log_crc16()` **公开**为 `app_log_crc16_hw()`：
+ *              `app_cfg.c` 的参数区校验需要**同一个算法** —— 而"同一算法两份实现"正是
+ *              `AGENTS.md` §5.1 要防的那类漂移（改了一处、另一处不知道）。
+ *              ⛔ 新增第三个用 CCITT 的模块时**继续调这个函数**，不要再写一份。
+ *              ⚠️ 它与 `app_modbus.c` 的 `mb_crc16()` **不是同一个算法**（那个是 CRC-16/MODBUS，
+ *                poly 0xA001 反射式）⇒ 两者并存是**对的**，⛔ 不要"统一"它们。
  * @brief       对若干个半字算 CRC
  * @note        半字按**小端两字节**喂进去（低字节在前），和它在 Flash 里的字节序一致 ⇒
  *              上位机照 0x0200 起的原始字节流重算能得到同一个值，不必猜定标。
  */
-static uint16_t log_crc16(const uint16_t *hw, uint16_t n)
+uint16_t app_log_crc16_hw(const uint16_t *hw, uint16_t n)
 {
     uint16_t crc = 0xFFFFu;
     uint16_t i;
@@ -192,7 +199,7 @@ static uint8_t log_slot_state(uint16_t pg, uint16_t slot, app_log_rec_t *out)
         return SLOT_DAMAGED;                  /* 提交位不是 0x0000：不是本格式写出来的 */
     }
 
-    if (log_crc16(hw, SLOT_HW_DATA_N) != hw[SLOT_HW_CRC])
+    if (app_log_crc16_hw(hw, SLOT_HW_DATA_N) != hw[SLOT_HW_CRC])
     {
         return SLOT_DAMAGED;
     }
@@ -562,7 +569,7 @@ static void log_write_one(const app_log_rec_t *rec)
     hw[SLOT_HW_CODE]   = rec->code;
     hw[SLOT_HW_AUX_A]  = rec->aux_a;
     hw[SLOT_HW_AUX_B]  = rec->aux_b;
-    hw[SLOT_HW_CRC]    = log_crc16(hw, SLOT_HW_DATA_N);
+    hw[SLOT_HW_CRC]    = app_log_crc16_hw(hw, SLOT_HW_DATA_N);
     hw[SLOT_HW_COMMIT] = COMMIT_YES;
 
     /* ★ 顺序 = 先数据 + CRC，提交位单独最后写（文件头"唯一错了不报错"的那条） */

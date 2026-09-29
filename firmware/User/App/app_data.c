@@ -204,7 +204,6 @@ uint16_t app_data_seq(void)
 void app_data_fake_step(uint32_t now_ms)
 {
     bms_raw_t     *r = app_data_raw_write();
-    bms_derived_t *d = app_data_der_write();
     uint32_t       sec = now_ms / 1000u;
     uint8_t        i;
 
@@ -268,79 +267,14 @@ void app_data_fake_step(uint32_t now_ms)
      * ⚠️ 剩下的同类债（`附录C` C-97 F3，已排 D7/D10）：`tick_ms_cell` / `tick_ms_curr` 今天仍由本函数
      *   每拍刷新 ⇒ `BMS_LINK_AFE` / `BMS_LINK_INA226` 永不亮。真实属主接入时**值与时间戳同批删**。 */
 
-    d->soc_x10 = (uint16_t)(856u - (sec % 30u));            /* 85.6% 起缓慢下滑 */
-    d->soh_x10 = 982u;
-    d->chg_mah = 12000u + sec;
-    d->dis_mah = 9000u + (sec / 2u);
-    d->cycles  = 12u;
-
-    d->cell_max_mv = 0u;
-    d->cell_min_mv = APP_MV_INVALID;
-
-    for (i = 0u; i < (uint8_t)APP_CELL_COUNT; i++)
-    {
-        if ((r->cell_valid & (uint16_t)(1u << i)) == 0u)
-        {
-            continue;                                       /* ★ 不可信的串不参与极值 */
-        }
-
-        if (r->cell_mv[i] > d->cell_max_mv)
-        {
-            d->cell_max_mv = r->cell_mv[i];
-        }
-
-        if (r->cell_mv[i] < d->cell_min_mv)
-        {
-            d->cell_min_mv = r->cell_mv[i];
-        }
-    }
-
-    d->delta_mv = (uint16_t)(d->cell_max_mv - d->cell_min_mv);
-
-    /* 温度极值：⛔ 不得把"没采到"的测点算进来 —— 未写入的槽是初值 0，
-     * 直接取 [0]/[1] 会得到"最低 0.0℃"这条**假欠温**判据（§4.4：0 不是无效值，0xFFFF 才是，
-     * 而温度没有无效哨兵 ⇒ 唯一可信的依据就是 temp_valid 位图）。 */
-    {
-        int16_t tmax = 0;
-        int16_t tmin = 0;
-        uint8_t found = 0u;
-
-        for (i = 0u; i < (uint8_t)APP_BMS_TEMP_ACTIVE_COUNT; i++)
-        {
-            if ((r->temp_valid & (uint16_t)(1u << i)) == 0u)
-            {
-                continue;
-            }
-
-            if (found == 0u)
-            {
-                tmax = r->temp_x10[i];
-                tmin = r->temp_x10[i];
-                found = 1u;
-            }
-            else
-            {
-                if (r->temp_x10[i] > tmax)
-                {
-                    tmax = r->temp_x10[i];
-                }
-
-                if (r->temp_x10[i] < tmin)
-                {
-                    tmin = r->temp_x10[i];
-                }
-            }
-        }
-
-        if (found != 0u)
-        {
-            d->temp_max_x10   = tmax;
-            d->temp_min_x10   = tmin;
-            d->temp_delta_x10 = (int16_t)(tmax - tmin);
-        }
-    }
-
-    d->temp_rise_x10_per_min = 2;                           /* 0.2℃/min */
+    /* ★★ 2026-09-29：**本函数不再写派生盒**（`bms_derived_t`）——
+     *   派生量（soc/soh/Ah/循环/极值/差值/温升速率）已整体交给 `app_soc.c`
+     *   （§4.4 原文：“派生量，由 app_soc 写”）。
+     *   ⏐ 这里原来那一整套**假派生值**（85.6% 的 SOC、12.00Ah、12 次循环、极值/温差/0.2℃/min）
+     *   已全部删除 ⇒ 本函数现在只负责“假 **raw** 源”，与 §4.4 的“每盒单写者”一致；
+     *   等 D7~D11 逐通道交接完成、假源整体退场时，本函数连 raw 一起删。
+     *   ⚠️ 顺序要求（⏐ 不能反）：`app_soc_step()` 必须在本函数**之后**、`app_acq_step()` 之前调用 ——
+     *     假源先铺 raw、派生层再据此算、最后真实通道覆盖 raw 并**一并发布** raw+derived。 */
 
     app_data_raw_commit();
 

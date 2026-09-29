@@ -25,6 +25,8 @@
 #include "./App/app_protect.h"    /* TaskProtect：告警帧写者 + 唯一喂狗点 */
 #include "./App/app_log.h"        /* TaskLog：事件落盘的唯一消费者 */
 #include "./App/app_modbus.h"    /* TaskComm：Modbus RTU 从机的周期体（2026-09-28 提前交付） */
+#include "./App/app_calib.h"     /* ★ TaskLog：标定表区落盘（§8 协议 (4)） */
+#include "./App/app_cfg.h"       /* TaskLog：参数区提交（§2.3 的"Flash 擦写只在 TaskLog 里做"） */
 #include <string.h>
 
 /* ==========================================================================
@@ -326,6 +328,7 @@ static void task_comm(void *pv)
 }
 
 /* ---------- TaskLog（50ms，prio 1）：事件队列的唯一消费者 ---------- */
+
 static void task_log(void *pv)
 {
     (void)pv;
@@ -340,6 +343,41 @@ static void task_log(void *pv)
          * ⚠️ 入参同为 `HAL_GetTick()`：日志时间戳与快照时间戳必须同钟，否则上位机
          *   看到的"事件时刻"和"数据时刻"差一个调度器启动偏移。 */
         app_log_poll(HAL_GetTick());
+
+        /* ★ 2026-09-29：门限参数区的提交**也在这里**（§2.3 的"Flash 擦写只在 TaskLog 里做"）。
+         *   ⛔ 顺序不能反：`app_log_poll()` 先跑 ⇒ 两次擦写**串行**，空窗不叠加（S25）。
+         *   ⚠️ 入参 = "现在是不是 SAFE_OFF"：`§4.4 规则 2` 要求参数区**只在 SAFE_OFF 时写**，
+         *      而状态的属主是 `app_protect` ⇒ 这里只**读**它的 getter（⛔ 不自己推断状态）。 */
+        {
+            uint8_t  bs = 0u, bm = 0u;
+            uint32_t seq_before = 0u, seq_after = 0u;
+
+            /* ★★ v0.66：串口命令入口（`?` 回放上电段原文 / `s` 状态行）。
+         *   ⛔ 放在 `app_log_poll()` **之前**：回放是有界打印（≈90ms），不与 Flash 擦写窗口叠加。 */
+        app_main_diag_poll();
+
+        app_cfg_status(&bs, &seq_before, &bm);
+
+            app_data_flash_busy(1u);                    /* §4.4 规则 4：写入期间不得宣称保护有效 */
+            (void)app_cfg_poll((app_protect_state() == BMS_STATE_SAFE_OFF) ? 1u : 0u);
+            /* ★ 2026-09-29：**标定表区**的落盘也在这里（§8「标定表区协议」协议 (4)：只在 `SAFE_OFF`、且由 `TaskLog` 执行）。今天没人调 `app_calib_commit_request()` ⇒ 它每拍空转（零开销）；
+             *   ⚠️ 上一版漏了这一接，后果是 `app_calib_poll()` 无调用者 ⇒ 链接器把它连同 2KB 的 `s_page` 整块裁掉（map 里写着 `Removing … (2048 bytes)`）。 */
+            (void)app_calib_poll((app_protect_state() == BMS_STATE_SAFE_OFF) ? 1u : 0u);
+            app_data_flash_busy(0u);
+
+            app_cfg_status(&bs, &seq_after, &bm);
+            (void)bs; (void)bm;
+
+            /* ★ 判据 = **提交序号变了**（⛔ 不用"poll 返回 OK"：那在无事可做时也成立）
+             * ⇒ 一条"提交成功"只有这一种可观测形态，日志里必须能看见（本机没有 COM 通路的教训）。 */
+            if (seq_after != seq_before)
+            {
+                (void)app_log_add(EV_CFG_COMMIT,
+                                  (uint16_t)(seq_after & 0xFFFFu),
+                                  (uint16_t)(seq_after & 0xFFFFu),
+                                  (uint16_t)(seq_after >> 16));
+            }
+        }
 
 
         vTaskDelay(pdMS_TO_TICKS(APP_PERIOD_LOG_MS));

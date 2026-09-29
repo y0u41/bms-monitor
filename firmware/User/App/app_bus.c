@@ -12,6 +12,7 @@
 #include "./BSP/SOFTI2C/softi2c.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
+#include "task.h"      /* ★ taskENTER_CRITICAL/EXIT（g_bus_afe 的有界临界区锁） */
 
 /* ⛔ 动态创建（xSemaphoreCreateMutex）在本工程会直接链接失败：C-42 已把动态分配降到链接级 */
 static StaticSemaphore_t s_bus_mutex_buf;
@@ -36,6 +37,29 @@ static volatile uint32_t s_bus_timeout;
  * @note        ⚠️ 超时上限 = `APP_BUS_LOCK_TIMEOUT_MS`，⛔ 不得改成"无穷等"：
  *              持有者可能是优先级最低的 Ui 侧路径，无穷等等于让采集/报警等一个界面刷新。
  */
+/* ★★★ 2026-09-29（D8 前裁决的执行）：**`g_bus_afe` 也必须串行化** ——
+ *   因为**今天就已经有两个任务**碰这条总线：`TaskProtect` 的 `afe_set_channel()`（开合 MOS，
+ *   是**安全动作**）＋ 容器的 `app_acq_afe_step()`（每 100ms 读单体/组压）。
+ *   ⛔ **不能用互斥量**：`AGENTS.md` 铁律 **S6** 明写「保护路径不得被锁阻塞」。
+ *   ⇒ 用**有界临界区**：它**不等待任何人、也永不失败**，只把本次事务（~0.5ms，由 `delay_us`
+ *     的 SysTick 忙等保证有界）与别的任务隔开。
+ *   ★ **语义澄清（本轮裁决）**：S6 禁止的是「**等锁**」，⛔ 不是「关中断」—— 它要防的是
+ *     "保护路径在同一条总线上排队等 24C02/等别人"。临界区恰好**不产生排队**。
+ *   ★ 为什么必须两边都包：单核上高优先级任务可以在**位中间**抢占低优先级任务
+ *     ⇒ 只有**发起事务的双方都关中断**，才能保证一次事务不被切开。 */
+static uint8_t app_bus_afe_lock(softi2c_bus_t *bus)
+{
+    (void)bus;
+    taskENTER_CRITICAL();
+    return 0;                       /* ★ 永不失败、永不等待 ⇒ 保护路径的写不会因"拿不到锁"而丢 */
+}
+
+static void app_bus_afe_unlock(softi2c_bus_t *bus)
+{
+    (void)bus;
+    taskEXIT_CRITICAL();
+}
+
 static uint8_t app_bus_sens_lock(softi2c_bus_t *bus)
 {
     (void)bus;                          /* 钩子签名要求带总线，本实现只服务 g_bus_sens 一把锁 */
@@ -101,6 +125,11 @@ uint8_t app_bus_init(void)
 
     /* ★ 只注册传感这一条。`g_bus_afe` 上锁 = 让保护路径排队等 24C02，S6/S1~S3 明确禁止。 */
     softi2c_set_lock(&g_bus_sens, app_bus_sens_lock, app_bus_sens_unlock);
+
+    /* ★★ 2026-09-29：**AFE 那条也装**（临界区版，见上面的语义澄清）——
+     *   原设计让它恒为 NULL，但那是在「只有一个任务碰它」的前提下成立的；
+     *   而 `TaskProtect` 的 `afe_set_channel()` 早就在用这条总线了。 */
+    softi2c_set_lock(&g_bus_afe, app_bus_afe_lock, app_bus_afe_unlock);
 
     return 0;
 }

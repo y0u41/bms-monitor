@@ -27,9 +27,11 @@
  */
 
 #include "./App/app_ui.h"
+#include "./App/app_main.h"      /* ★ 启动自检汇总出口 app_selfcheck_rc() */
+#include "./App/app_acq.h"      /* ★ Self 行的实时通道状态（*_stat） */
 #include "./App/app_data.h"
 #include "./App/app_config.h"
-#include "./App/app_alarm.h"
+#include "./App/app_env_alarm.h"
 #include "./App/app_tasks.h"      /* ⏳ 调试行专用（D9 串口命令入口建好后撤） */
 #if APP_ENABLE_LOG
 #include "./App/app_log.h"
@@ -621,6 +623,57 @@ static void ui_alive_row(char *line, size_t size)
  *                 **超一个数量级**（真卡死，某段不泵钩子的等待）。详见 `ui_alive_row()`。
  *                 ⏳ 随 D9 的串口命令入口一起删除。
  */
+
+/**
+ * @brief       ★★ 启动自检的**屏上出口**（页 3 的 row 1）
+ * @note        为什么有它：本机**没有 COM 通路**（CH340 未枚举）⇒ 7 个启动自检的判定
+ *              原先**只有调试器**能读。而 D6 到货当天人就在板子前面 ⇒ **能直接看到**才叫“照做即可”。
+ *              顺序 = `app_main.c` 的 `APP_SELF_*`：**CFG / ALM / SOC / INA226 / AT24 / MODBUS / RS485**。
+ *              `X` = 还没跑过（初值 `0xFF`）；数字 = 该模块的自检返回值（0 = 过）。
+ *              ⛔ 本行**只读**，不参与任何判据（界面不做保护判断，§4.2）。
+ */
+static void ui_selfcheck_row(char *line, size_t size)
+{
+    char    d[8];
+    uint8_t i;
+
+    for (i = 0u; i < 7u; i++)
+    {
+        uint8_t rc = app_selfcheck_rc(i);
+
+        d[i] = (rc == 0xFFu) ? 'X' : (char)('0' + (rc % 10u));
+    }
+
+    d[7] = '\0';
+
+    /* ★★ 2026-09-29 扩（D6~D11 的快循环）：同一行右边再接**实时通道状态** `IO a/i/n`
+     *   —— a = AFE、i = INA226、n = NTC，`1` = **该通道曾经成功读到过**（`*_ok > 0`）。
+     *   ★ 为什么和自检判决同一行：两者回答的是同一个问题 —— "这些**接口**到底通没通"。
+     *     自检是**上电那一刻**的判决，`IO` 是**此刻**的状态 ⇒ 到货当天插上线、
+     *     等一拍（100ms）就能看见对应的那一位由 0 变 1，⛔ 不必开调试器。
+     *   ⛔ 本行只读，不参与任何判据（§4.2：界面不做保护判断）。 */
+    {
+        uint16_t a_try = 0u, a_ok = 0u;
+        uint16_t i_try = 0u, i_ok = 0u;
+        uint16_t n_try = 0u, n_ok = 0u;
+        char     io[8];
+
+        app_acq_afe_stat(&a_try, &a_ok);
+        app_acq_ina_stat(&i_try, &i_ok);
+        app_acq_ntc_stat(&n_try, &n_ok);
+
+        io[0] = (a_ok > 0u) ? '1' : '0';
+        io[1] = '/';
+        io[2] = (i_ok > 0u) ? '1' : '0';
+        io[3] = '/';
+        io[4] = (n_ok > 0u) ? '1' : '0';
+        io[5] = '\0';
+
+        (void)snprintf(line, size, "Self %c/%c/%c/%c/%c/%c/%c  IO %s",
+                       d[0], d[1], d[2], d[3], d[4], d[5], d[6], io);
+    }
+}
+
 static void page_events(void)
 {
     char line[UI_LINE_MAX + 1];
@@ -634,6 +687,23 @@ static void page_events(void)
              (unsigned)total, (unsigned)APP_LOG_CAPACITY,
              (unsigned)app_log_damaged(), (unsigned)app_log_pending());
     ui_row(0, BLUE, line);
+
+    /* ★ 启动自检行（row 1 原本空着）：七个自检的判定直接上屏，⛔ 不需要任何上位机/串口 */
+    ui_selfcheck_row(line, sizeof(line));
+
+    {
+        uint8_t k;
+        uint8_t all_ok = 1u;
+
+        for (k = 0u; k < 7u; k++)
+        {
+            uint8_t rc = app_selfcheck_rc(k);
+
+            if ((rc != 0u) && (rc != 0xFFu)) { all_ok = 0u; }   /* 0xFF = 还没跑，不当失败 */
+        }
+
+        ui_row(1, (all_ok != 0u) ? GREEN : RED, line);
+    }
 
     ui_alive_row(line, sizeof(line));
 

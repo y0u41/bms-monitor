@@ -22,4 +22,11 @@ void app_main(void);
  */
 void app_main_service(void);
 
+/** ★ 启动自检汇总出口（2026-09-29；编号见 `app_main.c` 的 `APP_SELF_*`） */
+uint8_t     app_selfcheck_rc(uint8_t idx);
+
+/** ★ v0.66：串口命令入口（极小：`?` 回放上电段原文 / `s` 状态行）；由 `task_log()` 周期调用 */
+void        app_main_diag_poll(void);
+void        app_selfcheck_report(uint8_t *out, uint8_t n);
+
 #endif

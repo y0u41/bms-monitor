@@ -645,6 +645,31 @@
               <FilePath>../../User/App/app_alarm.c</FilePath>
             </File>
             <File>
+              <FileName>app_soc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../User/App/app_soc.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_calib.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../User/App/app_calib.c</FilePath>
+            </File>
+            <File>
+              <FileName>adc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../Drivers/BSP/ADC/adc.c</FilePath>
+            </File>
+            <File>
+              <FileName>ntc.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../Drivers/BSP/NTC/ntc.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_env_alarm.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../User/App/app_env_alarm.c</FilePath>
+            </File>
+            <File>
               <FileName>app_data.c</FileName>
               <FileType>1</FileType>
               <FilePath>../../User/App/app_data.c</FilePath>
@@ -653,6 +678,11 @@
               <FileName>app_modbus.c</FileName>
               <FileType>1</FileType>
               <FilePath>../../User/App/app_modbus.c</FilePath>
+            </File>
+            <File>
+              <FileName>app_cfg.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>../../User/App/app_cfg.c</FilePath>
             </File>
             <File>
               <FileName>app_acq.c</FileName>

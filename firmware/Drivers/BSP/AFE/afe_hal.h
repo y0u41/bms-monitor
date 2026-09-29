@@ -69,6 +69,21 @@ uint8_t afe_hal_read_hw_stat(afe_hw_t *st);
 uint8_t afe_hal_read_bal(uint8_t *mask);
 uint8_t afe_hal_write_bal(uint8_t mask);
 
+/* ★★ 2026-09-29（D8 前置）：保护门限寄存器 0x06~0x0A 是**连续**的 ⇒ 支持一次块写。
+ *   ★ 为什么必须块写：手册 §8.3 建议"主机在上电序列里重新下发这些值"，而逐个写会让
+ *     门限/延时在中间态**彼此不一致**（例如新门限配旧延时）⇒ 那一刻的保护行为无法预测。 */
+#define AFE_HAL_REG_PROTECT1    0x06u
+#define AFE_HAL_REG_PROTECT2    0x07u
+#define AFE_HAL_REG_PROTECT3    0x08u
+#define AFE_HAL_REG_OV_TRIP     0x09u
+#define AFE_HAL_REG_UV_TRIP     0x0Au
+
+/** @brief 块写（地址自增，每字节各带 CRC —— 见 §8.3 的写事务 CRC 覆盖范围） */
+uint8_t afe_hal_write_block(uint8_t reg, const uint8_t *dat, uint8_t n);
+
+/** @brief 块读（回读校验用） */
+uint8_t afe_hal_read_block(uint8_t reg, uint8_t *dat, uint8_t n);
+
 /**
  * @brief       写充/放通道使能位（0=断开）
  */

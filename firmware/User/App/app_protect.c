@@ -258,6 +258,30 @@ void app_protect_wdg_start(void)
     IWDG->KR  = 0xCCCC;                     /* 启动 */
     IWDG->KR  = 0xAAAA;                     /* 立即喂一次：消除"启动即满窗"，⛔ 这不是喂狗点 */
 
+    /* ★★ 2026-09-30（`附录C` **C-143** 的修法）：**判 MISMATCH 之前先给同步留时间**
+     *   实测（暖复位那次）：`pvu=1 rvu=1`（两次 50ms 等待都超时）⇒ 紧接着回读到的 PR/RLR 是**复位默认值**
+     *   （表观 424ms）；可是**稍后**直读同一块板却是设计值 `PR=4 / RLR=1206` ⇒ 当时的 `MISMATCH` 是
+     *   **"读得太早"的反向假红**（PVU/RVU 的清零在 **LSI 时钟域**，本次 >50ms）。
+     *   ⇒ 这里做一次**有界复读**（最多 200ms，1ms 一步）：只要 PR/RLR 在窗口内变成设计值，
+     *     就按 `ok` 报 —— ⛔ 但**那次超时仍然如实打印**（`pvu/rvu` 两位保留），因为
+     *     "写晚了"与"写丢了"是两件事，缺这一列又要靠猜。
+     *   ⚠️ 上限 200ms 是**有界的**：它落在开机到调度器（≈1464ms，已登记）之内，⛔ 不改变狗的存在。 */
+    if ((pvu_to != 0u) || (rvu_to != 0u))
+    {
+        uint32_t waited;
+
+        for (waited = 0u; waited < 200u; waited++)
+        {
+            if ((((uint8_t)(IWDG->PR & IWDG_PR_PR)) == (uint8_t)APP_IWDG_PR) &&
+                (((uint16_t)(IWDG->RLR & IWDG_RLR_RL)) == (uint16_t)APP_IWDG_RLR))
+            {
+                break;                      /* 同步赶上了（写没丢，只是晚） */
+            }
+
+            delay_ms(1);
+        }
+    }
+
     /* ---------- 回读：唯一能证明"窗口真的是设计值"的观测 ----------
      * ⚠️ 本文件头注"⛔ 不得 printf"管的是**任务里**（多线程共享打印通路）；
      *    本函数由 `app_main()` 在 `vTaskStartScheduler()` **之前**调用，单线程、无交错。
@@ -276,6 +300,22 @@ void app_protect_wdg_start(void)
            (unsigned)lsi_to, (unsigned)pvu_to, (unsigned)rvu_to);
 
     s_last_feed_ms = HAL_GetTick();
+}
+
+/** ★ 取证出口（v0.66，串口命令 `s` 的主人）：**现在**把狗窗再读一遍并打一行（⛔ 不写任何寄存器）
+ *  @note 打印形态与开机那一行**同格式**（便于对照），但不带 `lsi/pvu/rvu` 三个"开机等待"位 ——
+ *        那三位描述的是**开机那一刻**的等待结果，运行期重放它们只会误导。
+ *  ⛔ 本函数只读 `IWDG->PR/RLR`，不碰 `KR`（`IWDG->KR` 仍只出现在本文件，G7-⑤ 不变）。 */
+void app_protect_wdg_print(void)
+{
+    uint8_t  pr_rd  = (uint8_t)(IWDG->PR & IWDG_PR_PR);
+    uint16_t rlr_rd = (uint16_t)(IWDG->RLR & IWDG_RLR_RL);
+    uint32_t real_ms = (uint32_t)rlr_rd * (4u << pr_rd) * 1000u / APP_LSI_HZ;
+
+    printf("WDG  : pr=%u(/%u) rlr=%u -> %ums  %s  (readback at command time)\r\n",
+           (unsigned)pr_rd, (unsigned)(4u << pr_rd), (unsigned)rlr_rd, (unsigned)real_ms,
+           ((pr_rd == (uint8_t)APP_IWDG_PR) && (rlr_rd == (uint16_t)APP_IWDG_RLR))
+               ? "ok" : "MISMATCH(check LSI)");
 }
 
 /* ==================== 状态与请求标志 ==================== */
@@ -334,6 +374,9 @@ static void protect_consume_unlock(void)
 /* 意图位：写者 = D9 的协议层（线圈 0x0000/0x0001，§6.1"写 1 后仍需过保护状态机，不是直接闭合"），
  * 读者 = 本任务。与 s_unlock_req 同形态（单向字节、天然幂等、⛔ 不加锁）。 */
 static volatile uint8_t s_intent_bits;
+/* ★ 2026-09-29：参数区不可信这一类锁定请求（`app_protect_request_latch()`）。
+ * 与 `s_unlock_req` 同形：单字节、在 `app_protect_step()` 里被消费（单写者原则）。 */
+static volatile uint8_t s_latch_req;
 
 static uint32_t s_pre_start_ms;                 /* 本次预充的起点（判超时用） */
 static uint8_t  s_pre_retry;                    /* 连续失败次数，超限进锁定 */
@@ -471,8 +514,10 @@ static void protect_state_step(uint32_t now_ms)
     a = &s_snap.alarm;
     s_snap_valid = 1u;                  /* ★ 在"读完且可信"之后才立，⛔ 不得在 read 之前置 */
 
-    /* ① 保护请求优先于一切转移（§5.2 的 A/B 两类；等级归属由告警层定，本层⛔ 不推断）*/
-    if (a->request_latch != 0u)
+    /* ① 保护请求优先于一切转移（§5.2 的 A/B 两类；等级归属由告警层定，本层⛔ 不推断）
+     * ★ 2026-09-29：把"配置本身不可信"并进**同一条**锁定分支（`s_latch_req`）。
+     *   ⛔ 不另起一套处置：两者要的最终形态完全一样（全断 + 锁定），分开写必然漂移。 */
+    if ((a->request_latch != 0u) || (s_latch_req != 0u))
     {
         if (s_state != BMS_STATE_FAULT_LATCHED)
         {
@@ -709,6 +754,11 @@ void app_protect_step(uint32_t now_ms)
 void app_protect_actuator_start(void)
 {
     s_last_act_rc = actuator_init();
+}
+
+void app_protect_request_latch(void)
+{
+    s_latch_req = 1u;
 }
 
 void app_protect_set_intent(uint8_t chg, uint8_t dsg)

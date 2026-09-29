@@ -5,7 +5,7 @@ For bug reports, read
 Warn : DEPRECATED: auto-selecting transport "swd (dapdirect)". Use 'transport select swd' to suppress this message.
 Warn : Transport "swd" was already selected
 Info : STLINK V2J46S7 (API v2) VID:PID 0483:3748
-Info : Target voltage: 3.245563
+Info : Target voltage: 3.241270
 Info : Unable to match requested speed 1000 kHz, using 950 kHz
 Info : Unable to match requested speed 1000 kHz, using 950 kHz
 Info : clock speed 950 kHz
@@ -17,5 +17,5 @@ Info : [stm32f1x.cpu] starting gdb server on 3333
 Info : Listening on port 3333 for gdb connections
 Warn : [stm32f1x.cpu] target was in unknown state when halt was requested
 DUMP_START
-dumped 57344 bytes in 0.874456s (64.040 KiB/s)
+dumped 57344 bytes in 0.867831s (64.529 KiB/s)
 shutdown command invoked

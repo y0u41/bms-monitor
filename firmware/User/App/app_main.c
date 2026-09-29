@@ -17,7 +17,7 @@
 
 #include "./App/app_main.h"
 #include "./App/app_config.h"
-#include "./App/app_alarm.h"
+#include "./App/app_env_alarm.h"
 #include "./App/app_onenet.h"
 #include "./App/app_mqtt.h"
 #include "./App/app_log.h"
@@ -29,6 +29,7 @@
 #include "./App/app_modbus.h"       /* ★ Modbus RTU 从机（D9 提前，见其文件头） */
 #include "./BSP/RS485/rs485.h"      /* ★ 板载 RS485 物理层（USART2 + PD7） */
 #include "./App/app_tasks.h"        /* ★ D5：app_tasks_create() + 服务回调里补心跳 */
+#include "./SYSTEM/usart/usart.h"   /* ★ v0.66：打印路径出口（上电段原文回放等）+ USART1 寄存器 */
 #include "FreeRTOS.h"
 #include "task.h"                   /* vTaskStartScheduler() / taskDISABLE_INTERRUPTS() */
 #include "./BSP/LED/led.h"
@@ -37,7 +38,14 @@
 #include "./BSP/SHT30/sht30.h"
 #include "./BSP/SOFTI2C/softi2c.h"
 #include "./BSP/AT24CXX/at24cxx.h"
-#include "./BSP/INA226/ina226.h"    /* ★ D10 前置：驱动本体 + 上电自检（⛔ 本文件不把它接进采集通路） */
+#include "./BSP/INA226/ina226.h"
+#include "./App/app_cfg.h"          /* ★ 2026-09-29：门限参数区（§8 协议 / 附录C C-121） */
+#include "./App/app_alarm.h"        /* ★ 2026-09-29：BMS 三级告警（§5.3 / 附录C C-123） */
+#include "./App/app_soc.h"          /* ★ 2026-09-29：派生层（bms_derived_t 的唯一写者） */
+#include "./App/app_calib.h"        /* ★ 2026-09-29：标定表区（§8 协议 / 附录C C-127） */
+#include "./BSP/AFE/afe.h"         /* ★ D8：硬件门限编码往返自检 */
+#include "./BSP/ADC/adc.h"          /* ★ D11 前置：ADC1（PA5/PA6） */
+#include "./BSP/NTC/ntc.h"          /* ★ D11 前置：NTC 查表换算 */    /* ★ D10 前置：驱动本体 + 上电自检（⛔ 本文件不把它接进采集通路） */
 #include "./BSP/LSENS/lsens.h"
 #include "./BSP/ESP8266/esp8266.h"
 #include "./BSP/KEY/key.h"
@@ -133,6 +141,41 @@ static void app_log_env_event(uint8_t faults, int16_t temp_x10, uint16_t humi_x1
  * @note        ★ 自检项"看门狗：人为死循环 → IWDG 复位 → 复位后日志有复位记录、不自动闭合"
  *              的"有记录"这一半就落在这里（另一半"不自动闭合"属 D6/D8 的执行器默认态）。
  */
+/* ★★ 2026-09-29：**启动自检的汇总出口**。
+ * 为什么必须有：验收轮发现 `ina226_selftest()` / `app_modbus_selftest()` / `rs485_selftest()` 的判定
+ * **只喂了 printf**，而本机没有 COM 通路 ⇒ "自检过没过"在板现场**读不到**。
+ * 口径：**一处出口覆盖全部启动自检**（⛔ 不逐个模块各开一个，那会变成 N 个落点）。
+ * ⚠️ 顺序即下面 `APP_SELF_*` 的编号，⛔ 改动要与读侧（调试器/自检表）同批。 */
+#define APP_SELF_CFG        0u
+#define APP_SELF_ALARM      1u
+#define APP_SELF_SOC        2u
+#define APP_SELF_INA226     3u
+#define APP_SELF_AT24       4u
+#define APP_SELF_MODBUS     5u
+#define APP_SELF_RS485      6u
+#define APP_SELF_N          7u
+
+static uint8_t s_self_rc[APP_SELF_N] = { 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu, 0xFFu };
+
+static void self_rec(uint8_t idx, uint8_t rc)
+{
+    if (idx < (uint8_t)APP_SELF_N) { s_self_rc[idx] = rc; }
+}
+
+uint8_t app_selfcheck_rc(uint8_t idx)
+{
+    return (idx < (uint8_t)APP_SELF_N) ? s_self_rc[idx] : 0xFFu;
+}
+
+void app_selfcheck_report(uint8_t *out, uint8_t n)
+{
+    uint8_t i;
+
+    if (out == NULL) { return; }
+
+    for (i = 0u; (i < n) && (i < (uint8_t)APP_SELF_N); i++) { out[i] = s_self_rc[i]; }
+}
+
 static void app_log_boot_event(void)
 {
     uint16_t reason = 0u;
@@ -183,7 +226,11 @@ static void app_periodic(void)
 {
     uint32_t now = HAL_GetTick();
 
-    app_data_fake_step(now);      /* ⏳ 逐通道交接中：环境通道已由 app_acq 写真数据（D3），其余仍是假值 */
+    app_data_fake_step(now);
+    app_soc_step(now);            /* ★ 派生层唯一写者：从 raw 算极值/差值/温升 + 安时积分 */      /* ⏳ 逐通道交接中：环境通道已由 app_acq 写真数据（D3），其余仍是假值 */
+    app_acq_afe_step(now);        /* ★ D7 交接：AFE 单体/组压（AFE 未接 ⇒ 一个字节都不写） */
+    app_acq_ina_step(now);        /* ★ D10 交接：INA226 电流/冗余组压（未接 ⇒ 一个字节都不写） */
+    app_acq_ntc_step(now);        /* ★ D11 交接：两路电芯 NTC（未接 ⇒ 一个字节都不写） */
     app_acq_step(now);            /* 采集层：SHT30 两阶段读 → 快照的环境温度通道 */
     app_ui_task(now);             /* 按键扫描 + 200ms 限流重绘 */
     alarm_task();
@@ -564,6 +611,76 @@ static void app_env_mute(void)
  * @param       无
  * @retval      无（不返回：`vTaskStartScheduler()` 之后要么在任务里，要么等狗咬）
  */
+/* ==========================================================================
+ * ★★ 2026-09-30（v0.66 = D9 读数出口的开始）串口命令入口（**极小**，⛔ 不是 shell）
+ *   只认两个字符：
+ *     `?`（或 `h`）= **回放"上电段打印的原文"** —— 真·冷启动的开机行在 COM6 上抓不到
+ *                    （CH340 与 MCU 同电 ⇒ USB 枚举 ≈1s 晚于开机打印，见 `附录C` C-144）
+ *                    ⇒ 这是它**唯一"事后可取"的形态**。
+ *     `s`          = **状态行**（打印路径代价 ＋ 事件队列 ＋ 狗窗现状）。
+ *   ★ 四条设计纪律：
+ *     ① **非阻塞**：只问 `USART1->SR`，没有字节立刻返回（⛔ 不等待、⛔ 不 delay）；
+ *     ② **有界**：一拍最多读 8 字节；`?` 的回放 ≈1KB ≈ 90ms，落在 `TaskLog` 的 200ms 判活窗内；
+ *     ③ ⛔ **不认识的字静默丢弃**（不写完整 shell —— D9 的判据不是 shell，也⛔ 不回显）；
+ *     ④ ⛔ **只读**：不改任何运行态、不写日志/参数。
+ *   ★ 归属：由 `task_log()` 每 50ms 调一次（它就是"打印任务"，窗口装得下这次回放）。
+ * ==========================================================================*/
+static volatile uint8_t s_diag_ore;   /* 串口输入被 ORE 吃掉的次数（诊断出口，⛔ 不参与判据） */
+
+void app_main_diag_poll(void)
+{
+    uint8_t n;
+
+    /* ★ 输入丢失必须**看得见**：本入口是**轮询**的（`TaskLog` 每 50ms 一拍），而一个字符只要 87µs
+     *   ⇒ 连发多个字符时，只有最后一个可能存活，其余被 USART 的**溢出（ORE）**吃掉。
+     *   ⇒ 约定：**一次只发一个字符**（人在台架上敲键盘天然满足 ≳100ms 间隔）；
+     *     真丢过就计进 `s_diag_ore` 并在 `STAT` 行打出来（⛔ 不静默）。
+     *   ⏳ D9 后续（登记在案）：要支持"一串命令"就得给它一个 **RX 中断 + 环形缓冲**，
+     *     那是另一笔改动面（NVIC 优先级契约 + 缓冲），⛔ 本轮不做。 */
+    if ((USART1->SR & USART_SR_ORE) != 0u)
+    {
+        if (s_diag_ore < 0xFFu)
+        {
+            s_diag_ore++;
+        }
+    }
+
+    for (n = 0u; n < 8u; n++)
+    {
+        uint8_t ch;
+
+        if ((USART1->SR & USART_SR_RXNE) == 0u)
+        {
+            break;
+        }
+
+        ch = (uint8_t)(USART1->DR & 0xFFu);
+
+        if ((ch == '?') || (ch == 'h'))
+        {
+            printf("\r\n[boot] replay %u B (ovf=%u) ...\r\n",
+                   (unsigned)usart_retarget_bootlog_len(),
+                   (unsigned)usart_retarget_bootlog_overflow());
+            usart_retarget_bootlog_replay();
+            printf("[boot] end\r\n");
+        }
+        else if (ch == 's')
+        {
+            printf("STAT pd=%u ps=%u ctx=%u txd=%u txt=%u ld=%u lp=%u boot=%u/%u ore=%u\r\n",
+                   (unsigned)usart_retarget_print_drops(), (unsigned)usart_retarget_print_splits(),
+                   (unsigned)usart_retarget_print_ctx_full(), (unsigned)usart_retarget_tx_dead(),
+                   (unsigned)usart_retarget_tx_timeouts(), (unsigned)app_log_dropped(),
+                   (unsigned)app_log_pending(), (unsigned)usart_retarget_bootlog_len(),
+                   (unsigned)usart_retarget_bootlog_overflow(), (unsigned)s_diag_ore);
+            app_protect_wdg_print();                 /* ★ 狗窗现状（只读，见其函数注） */
+        }
+        else
+        {
+            /* ⛔ 未识别的字符：静默丢弃（不写 shell、不回显） */
+        }
+    }
+}
+
 void app_main(void)
 {
     delay_init(72);
@@ -629,6 +746,7 @@ void app_main(void)
      * SHT30 还能不能工作"的反向证明 —— 两步之间有完整的 STOP/START 交替。 */
     {
         uint8_t e2 = at24cxx_selftest();
+        self_rec(APP_SELF_AT24, e2);
 
         if (e2 == AT24C_OK)
         {
@@ -651,6 +769,7 @@ void app_main(void)
      *      仍由假数据源填（逐通道交接按 C-97 F3 与实物到位的同一天做）。 */
     {
         uint8_t  ei = ina226_selftest();
+        self_rec(APP_SELF_INA226, ei);
         uint16_t mfg = 0x0000u;
         uint16_t die = 0x0000u;
         int16_t  i_sh = 0;
@@ -709,12 +828,164 @@ void app_main(void)
      * 遗留报警通路（上面那套 th_* ）从这里取值，⛔ 不得两边各自驱动器件。 */
     app_acq_init();
 
+    /* ---------------- ★ 门限参数区（§8「门限参数区协议」，`附录C` C-121） ----------------
+     * ★ 位置 = **采集之后、日志之前**：它只用 `stmflash_read()` 读两页页头，
+     *   ⛔ **一次 Flash 写都没有**（首次上电只置待提交标志，真正的擦写在 `TaskLog` 里）。
+     * ⚠️ 三态里的③（被写过但两区都坏）**必须进 FAULT_LATCHED**（§5.2）——
+     *   那是"拿一套不知来源的门限去切主回路"，⛔ 不得用默认值裸跑。 */
+    {
+        uint8_t  cfg_boot = app_cfg_load();
+        uint8_t  cfg_self = app_cfg_selftest();
+        self_rec(APP_SELF_CFG, cfg_self);
+
+        printf("CFG  : boot=%u (0=fresh 1=loaded 2=LATCHED) selftest=%u %s\r\n",
+               (unsigned)cfg_boot, (unsigned)cfg_self,
+               (cfg_boot == APP_CFG_BOOT_LATCHED) ? "!! param area untrusted -> latch requested" : "");
+
+        if (cfg_boot == APP_CFG_BOOT_LATCHED)
+        {
+            app_protect_request_latch();        /* ★ 只置标志；处置在 app_protect_step() 里（单写者） */
+        }
+    }
+
+    /* ---------------- ★★ BMS 三级告警判据：**离线注入自检**（§5.3 / 附录C C-123） ----------------
+     * ★ 为什么现在只跑自检、**不**把实时判定接进 TaskProtect：
+     *   当前采集层喂的仍是 D2 的**假数据源**（真值要等 AFE/INA226/NTC 接上）—— 一旦假值越限，
+     *   实时判定就会置 `request_latch`/`request_open`，**等于让板子被假数据真锁定**。
+     *   而自检把合成输入灌进**局部** `bms_alarm_t`，⛔ 不碰真报警帧 ⇒ **对在板行为零影响**，
+     *   却能对**这份编译产物**给出"等级/动作位/锁定/原因串"的逐条判决。
+     * ⛔ 它的结论**只覆盖判据逻辑**：不覆盖真实采样、不覆盖执行器动作、不替代 F2 的台架故障注入。 */
+    app_alarm_init();
+    { uint16_t _sr = app_alarm_selftest(); self_rec(APP_SELF_ALARM, (uint8_t)_sr);
+      printf("ALM  : selftest=%u (0=pass; N=case N failed)\r\n", (unsigned)_sr); }
+
+    /* ---------------- ★ 派生层：离线注入自检（§4.4 / PRD §2.2） ----------------
+     * ⚠️ SOC 在本版**没有初值来源**（OCV 表与满充/放空判据要 D16 标定）⇒ 未锚定期间
+     *    `soc_x10` 一律回 `APP_SOC_UNKNOWN`（0xFFFF），⛔ 不冒充一个数值。 */
+    app_soc_init();
+    { uint16_t _sr = app_soc_selftest(); self_rec(APP_SELF_SOC, (uint8_t)_sr);
+      printf("SOC  : selftest=%u (0=pass; N=case N failed)\r\n", (unsigned)_sr); }
+    printf("SOC  : ocv-selftest=%u (0=pass; 7 cases: exact/interp/no-extrapolation)\r\n", (unsigned)app_soc_ocv_selftest());
+
+    /* ---------------- ★ 标定表区（§8「标定表区协议」／ 附录C C-127） ----------------
+     * ⚠️ **缺失 ≠ 故障**：两份副本都不可用时 valid = 0 ⇒ 系统走芯片全局 gain/offset，
+     *   ⛔ **不拒绝启动**（口径见 §8 协议 (3)）。本版预期 valid = 0（填表的是 D16 的标定流程）。 */
+    app_calib_init();
+    printf("CAL  : valid=%u selftest=%u\r\n",
+           (unsigned)app_calib_valid(), (unsigned)app_calib_selftest());
+
+    /* ---------------- ★ D11 前置：ADC 与 NTC（§3.1.1 / `附录C` C-130 的代码前置） ----------------
+     * ⚠️ 本轮**只做到"驱动就绪 + 离线自检"：尚未接管道**（NTC 读数进快照的交接、
+     *   以及 §4.4 裁决的 ①~⑤ 五处，将在下一轮**一次改齐**）。
+     * ★ NTC 自检是**纯查表**（不需接 NTC），而它的第 1 条正是**分压拓扑的判决点**（code 2047 ⇒ 25℃）。 */
+    adc_init();
+    printf("ADC  : selftest=%u/%u (0=pass)\r\n",
+           (unsigned)adc_selftest(), (unsigned)adc_selftest_result());
+    printf("NTC  : selftest=%u/%u (0=pass; 1=topology/table)\r\n",
+           (unsigned)ntc_selftest(), (unsigned)ntc_selftest_result());
+    printf("PROT : selftest=%u (0=pass; D8 hw-threshold encode round-trip)\r\n", (unsigned)afe_prot_selftest());
+    /* ★★ D8：AFE **在位时**把参数区的硬件门限下发并回读校验（不在位 ⇒ NACK，一个寄存器都不写）。
+     *   手册 §8.3 明写建议在上电序列里 reload；★ 结果码可读（`afe_prot_apply_result()`）。 */
+    {
+        uint8_t bad = 0u;
+
+        printf("PROT : apply=%u bad=0x%02X (0=ok; 1~3=precond; 4/5=bus; 6=readback)\r\n",
+               (unsigned)afe_prot_apply(&bad), (unsigned)bad);
+    }
+
+    /* ★★ D16 前置：把标定表区里**有效的**逐串 k/b 喂给 AFE 层（§8 (5)：BSP ⛔ 不读 Flash，由应用层喂）。
+     *   ⚠️ 表无效（本版预期如此）⇒ 一个都不喂 ⇒ 走全局系数 —— **零行为变化**。 */
+    printf("CALB : selftest=%u mask=0x%04X (0=pass; mask = cells fed)\r\n",
+           (unsigned)afe_cell_calib_selftest(), (unsigned)afe_cell_calib_mask());
+
+    if (app_calib_valid() != 0u)
+    {
+        uint8_t ci;
+        uint8_t fed = 0u;
+
+        for (ci = 0u; ci < (uint8_t)APP_CELL_COUNT; ci++)
+        {
+            uint32_t ck = 0u;
+            int32_t  cb = 0;
+
+            if ((app_calib_get_cell(ci, &ck, &cb) != 0u) &&
+                (afe_set_cell_calib(ci, ck, cb) == AFE_OK))
+            {
+                fed++;
+            }
+        }
+
+        printf("CALB : fed=%u (\u4ece\u6807\u5b9a\u8868\u533a\u5582\u5165\u9010\u4e32 k/b)\r\n", (unsigned)fed);
+    }
+
+    /* ★★ 2026-09-29：**让换算路径不能被常量折叠掉** —— 这一行用**运行期取值**（ADC）做入参。
+     *   为什么非要这么做：自检全是常数参数 ⇒ 编译器把 `ntc_code_to_temp_x10()` 与整张表**全删**（map：
+     *   `Removing ntc.o(.rodata.s_tab), (512 bytes)`）⇒ 于是"编进镜像的表到底对不对"根本无从取证。加上这一行，表必定入镜像 ⇒ 可 dump、可逐项对。
+     *   ⚠️ 读出来的温度**不是测量结果**（今天 NTC 连线都不在），它只是"转换链路能跑"的证据。 */
+    {
+        int16_t  t_probe = 0;
+        uint16_t c_probe = adc_read_ch(ADC_CH_NTC1);
+        uint8_t  r_probe = ntc_code_to_temp_x10(c_probe, &t_probe);
+
+        printf("NTC  probe: code=%u rc=%u t=%d (NOT a measurement)\r\n",
+               (unsigned)c_probe, (unsigned)r_probe, (int)t_probe);
+    }
+
 #if APP_ENABLE_LOG
     /* ---------------- 事件日志: RTC 时间戳 + 内部 FLASH 环形追加 ---------------- */
     {
         uint8_t rtc_ret = rtc_init();
 
         app_log_init();                     /* 纯读扫描全区, 定位写指针 / 统计有效条数 / 报出损坏条数 */
+
+    /* ★★★ 2026-09-30（还 `附录C` C-101 那笔「没有主人的导出函数」）：
+     *   给 `app_log_dump()` 一个**串口触发的主人** —— 上电后 `APP_LOGDUMP_WINDOW_MS` 内收到**任意一个字节**就整份导出。
+     *   ★ 为什么放在这里、窗口为什么 250ms：IWDG 窗口是 424ms（启动行 `rlr=4095 -> 424ms`）⇒ 本段必须**显著短于它**；
+     *     且本段**不做任何喂狗**（全工程只有一处条件喂狗，⛔ 不在这里开第二个口子）。
+     *   ★ 为什么不写完整 shell：D9 的判据是「AFE 接口定稿 ＋ 连续 1h 无通信失败」，⛔ 不是 shell。
+     *   ★ 用法：打开串口(115200) → **复位板子** → 窗口内按一下回车 ⇒ 打印整份日志。
+     *   ⛔ 只读：不写日志、不写参数、不改运行态；窗口外收到的字节一律忽略。 */
+    if (APP_LOGDUMP_ON_BOOT != 0u)
+    {
+        uint32_t _t0 = HAL_GetTick();
+        uint8_t  _hit = 0u;
+
+        if ((USART1->SR & USART_SR_RXNE) != 0u)   /* 先丢掉可能的悬留字节 */
+        {
+            (void)USART1->DR;
+        }
+
+        while ((uint32_t)(HAL_GetTick() - _t0) < APP_LOGDUMP_WINDOW_MS)
+        {
+            if ((USART1->SR & USART_SR_RXNE) != 0u)
+            {
+                (void)USART1->DR;
+                _hit = 1u;
+                break;
+            }
+        }
+
+        if (_hit != 0u)
+        {
+            printf("\r\n[log] dump by serial request ...\r\n");
+            app_log_dump();
+            printf("[log] dump done\r\n");
+        }
+    }
+
+        /* ★ 参数区坏也要**留痕**（⛔ 不得只在串口上喊一句：本机没有 COM 通路的教训见验收轮） */
+        {
+            uint8_t  bs = 0u;
+            uint8_t  bm = 0u;
+            uint32_t sq = 0u;
+
+            app_cfg_status(&bs, &sq, &bm);
+
+            if (bs == APP_CFG_BOOT_LATCHED)
+            {
+                (void)app_log_add(EV_CFG_CORRUPT, (uint16_t)((uint16_t)bm | 0x8000u), 0u, 0u);
+            }
+        }
         app_log_boot_event();               /* ★ 第一条永远是"这次为什么复位" */
 
         /* ★ C-110：把上一次"卡死 → 咬狗"的现场从备份域读回来补投一条 `EV_TASK_STALLED`。
@@ -742,7 +1013,7 @@ void app_main(void)
                calendar.hour, calendar.min, calendar.sec,
                (rtc_is_set() != 0) ? "set, battery-backed" : "from build time, not battery-backed");
 
-        printf("LOG  : KEY1 翻到页 3 看事件日志(最新在前); 全量导出等 D9 的串口命令\r\n");
+        printf("LOG  : KEY1 -> page 3 for the event log (newest first); full dump waits for the D9 serial command\r\n");
     }
 #endif
 
@@ -804,8 +1075,10 @@ void app_main(void)
         {
             /* ① 物理层真机判据：TX 的 DMA 请求映射到底通不通（挂错通道时它超时）。 */
             e_dma = rs485_selftest();
+            self_rec(APP_SELF_RS485, e_dma);
             /* ② 协议级判据：CRC16 已知答案 + 一条合成请求的响应结构（不需要任何外部设备）。 */
             e_pro = app_modbus_selftest();
+            self_rec(APP_SELF_MODBUS, e_pro);
         }
 
         printf("485  : USART2 %u 8N1 addr=%u  init=%u dma=%u crc=%u %s\r\n",
@@ -953,7 +1226,7 @@ void app_main_service(void)
         }
         else
         {
-            printf("DATA %s read fail (连续第%u次) lsens=%u cdm2=%u alarm=%s%s\r\n",
+            printf("DATA %s read fail (consecutive #%u) lsens=%u cdm2=%u alarm=%s%s\r\n",
                    th_name(), (unsigned)g_th_fail, (unsigned)s_lux, (unsigned)s_lux_cdm2,
                    alarm_reason(), alarm_is_beeping() ? " BEEP" : "");
         }

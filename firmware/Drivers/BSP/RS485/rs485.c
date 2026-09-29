@@ -35,6 +35,9 @@ static volatile uint8_t  s_rx_ready;                    /* 1 = 有一帧待取 *
 static uint8_t  s_tx_buf[APP_MB_ADU_MAX];
 static volatile uint8_t  s_tx_busy;
 static volatile uint8_t  s_tx_done;                     /* TC 事件锁存（自检等它） */
+static volatile uint8_t s_tx_proof;  /* ★ 必须 volatile：只写不读的静态量会被编译器
+                                      *   **整个优化掉**（本工程实测发生过：map 里找不到符号）⇒
+                                      *   而"消失"与"没写"在板现场同形。 */         /* ★ 自检走的是哪一支：0=未判 / 1=中断通路 / 2=硬件寄存器 */
 static volatile uint32_t s_tx_start_ms;                 /* 兜底计时（只有任务上下文读它） */
 
 static volatile uint32_t s_rx_frames;
@@ -337,18 +340,40 @@ uint8_t rs485_selftest(void)
         return RS485_ERR_HAL;
     }
 
-    /* 有界等待：用**不依赖中断**的 `delay_ms(1)` 计时（C-107：本函数可能跑在调度器之前） */
+    /* ★★ 2026-09-29 修（⛔ 不能只等中断里的 `s_tx_done`）。**真机证据**：
+     *   本自检在**启动序列里恒返回 `RS485_ERR_BUSY`(2)**，而事后读
+     *   `s_tx_done = 1` 且 `s_tx_errors = 0` ⇒ **通路是好的、TC 也真的来了**，只是
+     *   **来得比 20ms 晚**。根因：启动序列到 `vTaskStartScheduler()` 之前，`BASEPRI` 停在
+     *   FreeRTOS 的临界区哨兵值上（`app_main.c` 那段注释已写明 SysTick 因此被屏蔽）
+     *   ⇒ 优先级 ≥ `configMAX_SYSCALL_INTERRUPT_PRIORITY` 的**一切中断都进不来**（USART2 / DMA 通道正是这个量级）
+     *   ⇒ 靠中断置位的 `s_tx_done` 在启动期**结构上不可达**。
+     *   ⇒ 判据改成**先看硬件事实**：DMA 剩余传输计数归零 **且** USART 的 TC 标志置位
+     *     —— 这两条**不受中断屏蔽影响**；中断里的 `s_tx_done` 作为**第二形态**
+     *     （它只在任务上下文里才可能为真）。★ 这也更符合“**验硬件，不验处理器**”。 */
+    if (s_uart.hdmatx == NULL)
+    {
+        return RS485_ERR_HAL;           /* 没挂 TX DMA 句柄 = 配置不完整，⛔ 不当“超时” */
+    }
+
     for (waited = 0u; waited < RS485_SELFTEST_WAIT_MS; waited++)
     {
         if (s_tx_done != 0u)
         {
+            s_tx_proof = 1u;            /* 1 = 中断通路（启动序列里通常不可达，见上） */
+            return RS485_OK;
+        }
+
+        if ((s_uart.hdmatx->Instance->CNDTR == 0u) &&
+            (__HAL_UART_GET_FLAG(&s_uart, UART_FLAG_TC) != 0u))
+        {
+            s_tx_proof = 2u;            /* 2 = 硬件寄存器（启动序列里应当走这一支） */
             return RS485_OK;
         }
 
         delay_ms(1);
     }
 
-    return RS485_ERR_BUSY;              /* 超时 = DMA 通道映射 / USART DMA 请求 / TC 中断三者之一不通 */
+    return RS485_ERR_BUSY;              /* 超时 = DMA 通道映射 / USART DMA 请求 / 两者都不通 */
 }
 
 /* ===================== 中断入口 =====================

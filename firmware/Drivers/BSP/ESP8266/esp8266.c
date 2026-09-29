@@ -314,7 +314,17 @@ uint8_t esp8266_wait_ack(const char *ack, uint32_t timeout_ms)
  */
 uint8_t esp8266_cmd(const char *cmd, const char *ack, uint32_t timeout_ms)
 {
-    printf("ESP >> %s\r\n", cmd);
+    /* ★★ 2026-09-30：**回显要掩码** —— 原实现把完整命令打到串口 ⇒ **明文 WiFi 口令进了日志**
+     *   （实测串口日志里出现 `AT+CWJAP="<ssid>","<pwd>"`）。交付/答辩材料里不该有明文凭据，
+     *   而日志又常被粘进报告。★ ⛔ 只改"打印"，**不改发给模块的命令**（`g_esp_cmd` 仍是完整的）。 */
+    if (strstr(cmd, "CWJAP") != NULL)
+    {
+        printf("ESP >> AT+CWJAP=<ssid>,\"" "***" "\"   (password redacted)\r\n");
+    }
+    else
+    {
+        printf("ESP >> %s\r\n", cmd);
+    }
 
     esp8266_clear();                            /* 丢弃历史残留数据 */
 

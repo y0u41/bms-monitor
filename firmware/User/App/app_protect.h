@@ -39,6 +39,7 @@
  *              ⛔ 本函数内部那次"立即喂"不是喂狗点，它只是消除启动瞬间的满窗。
  */
 void        app_protect_wdg_start(void);
+void        app_protect_wdg_print(void);   /* ★ 运行期把狗窗再读一遍（串口命令 `s` 的出口；⛔ 只读） */
 
 /**
  * @brief       TaskProtect 的周期体（10ms）
@@ -110,6 +111,17 @@ bms_state_t app_protect_state(void);
  *              单词标志天然幂等 ⇒ 跨任务不需要锁。
  */
 void        app_protect_request_unlock(void);
+
+/**
+ * @brief       ★ 请求**进入三级锁定**（`FAULT_LATCHED`）—— 与 `app_protect_request_unlock()` 成对的另一半
+ * @note        ★ 它不是"告警判据"：`app_alarm` 的三级判据（D14）走 `request_latch` 那条既有通路。
+ *              本函数服务的是**"配置本身不可信"**这一类：`app_cfg` 上电三态③（参数区被写过但两区都坏）
+ *              与"装载后运行期校验不过" ⇒ 只能锁定，⛔ 不得为此放行（S2：失效安全的入口永远朝保守方向）。
+ * @note        ★ 本函数**只置一个标志就返回**（与 `request_unlock` 同形）：真正的处置在
+ *              `app_protect_step()` 里（单写者原则）。单词标志天然幂等 ⇒ 跨任务不需要锁。
+ * @note        ⚠️ 它**跨复位粘住**不需要额外机制：参数区坏是**持续状态** ⇒ 每次开机重新置标志。
+ */
+void        app_protect_request_latch(void);
 
 /**
  * @brief       ★ **开机读回上一次的卡死现场**（C-110，备份域携带）并补投一条 `EV_TASK_STALLED`

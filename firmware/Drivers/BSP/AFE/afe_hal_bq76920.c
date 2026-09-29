@@ -28,7 +28,7 @@
 
 /* 选错型号时这个文件根本不该参与编译（C-01 的编译期守门） */
 #if !APP_AFE_CHIP_BQ76920
-#error "afe_hal_bq76920.c 与 APP_AFE_CHIP_* 选择不一致：请在 app_config.h §12.3 选定型号"
+#error "afe_hal_bq76920.c does not match the APP_AFE_CHIP_* selection: pick the chip in app_config.h 12.3"
 #endif
 
 /* ===================== BOOT 脚（Tech_Design.md §2：PE6 → 1K → TS1） ===================== */
@@ -414,6 +414,16 @@ uint8_t afe_hal_read_bal(uint8_t *mask)
     *mask = (uint8_t)(v & 0x1Fu);     /* bit4:0 = CB5..CB1，高 3 位 RSVD */
 
     return AFE_OK;
+}
+
+uint8_t afe_hal_write_block(uint8_t reg, const uint8_t *dat, uint8_t n)
+{
+    return afe_hal_write(reg, dat, n);
+}
+
+uint8_t afe_hal_read_block(uint8_t reg, uint8_t *dat, uint8_t n)
+{
+    return afe_hal_read(reg, dat, n);
 }
 
 uint8_t afe_hal_write_bal(uint8_t mask)

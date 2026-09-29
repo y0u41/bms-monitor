@@ -1,0 +1,40 @@
+ESP >> AT
+ESP >> AT
+ESP >> AT
+NET FAIL: WiFi  : no resp (resp: )
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+DATA TH read fail (consecutive #0) lsens=2 cdm2=400 alarm=normal
+NET: retry
+NET: reset ESP8266 before retry
+ESP >> AT+RST
+ESP >> AT
+NET: AT probe
+ESP >> AT
