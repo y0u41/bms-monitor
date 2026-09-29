@@ -8,6 +8,11 @@
 # ============================================================================
 cd "$(dirname "$0")/.." || exit 2
 fail=0
+# ★ G7-8/9 是 python 脚本，判据文案里带「⚑」这类非 ASCII 字符；Windows GBK 控制台下
+#   print 会先抛 UnicodeEncodeError ⇒ 报出与代码无关的**假红**（2026-09-29 实测：
+#   bench_symbol_check.py 全绿却因编码退成非 0）。固定输出编码 = 只修取证通路，
+#   ⛔ 判据一条未改、⛔ 不放宽任何一条。
+export PYTHONIOENCODING=utf-8
 
 echo "== G7-1  User/App 内不得出现 AFE 寄存器名 / 执行器引脚宏（S15）=="
 if grep -rnE 'REG_[A-Z0-9_]+|CTRL[12]_[A-Z]+|SYS_STAT|CELLBAL|OV_TRIP|UV_TRIP|ADCGAIN|ADCOFFSET|CC_READY|CHG_ON|DSG_ON|AFE_BOOT_GPIO|AFE_HAL_|EN_CHG|EN_DSG|EN_PRE|afe_hal\.h' \
