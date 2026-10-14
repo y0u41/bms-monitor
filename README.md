@@ -39,16 +39,16 @@
 bms-monitor/
 ├── firmware/
 │   ├── User/App/          # 应用层（17 个模块）
-│   │   ├── app_acq.c      # 数据采集
-│   │   ├── app_soc.c      # SOC 估算
-│   │   ├── app_protect.c  # 保护判据
-│   │   ├── app_modbus.c   # Modbus 从机
-│   │   └── app_mqtt.c     # MQTT 客户端
-│   ├── Drivers/           # HAL + BSP
-│   └── Middlewares/       # FreeRTOS
-├── tools/                 # 门禁脚本
-├── PRD.md                 # 产品需求
-└── Tech_Design.md         # 技术设计
+│   │   ├── app_acq.c      # 数据采集           
+│   │   ├── app_soc.c      # SOC 估算           
+│   │   ├── app_protect.c  # 保护判据           
+│   │   ├── app_modbus.c   # Modbus 从机        
+│   │   └── app_mqtt.c     # MQTT 客户端        
+│   ├── Drivers/           # HAL + BSP          
+│   └── Middlewares/       # FreeRTOS           
+├── tools/                 # 门禁脚本           
+├── PRD.md                 # 产品需求           
+└── Tech_Design.md         # 技术设计           
 ```
 
 ## 🚀 快速开始
@@ -102,21 +102,21 @@ AFE 采样板 → ADC 多通道采集 → app_acq → SOC 估算(app_soc) → �
 bms-monitor/
 ├── firmware/
 │   ├── User/App/          # 应用层（17 个模块）
-│   │   ├── app_acq.c      # 数据采集调度
-│   │   ├── app_soc.c      # SOC 估算
-│   │   ├── app_protect.c  # 保护判据
-│   │   ├── app_alarm.c    # 告警管理
-│   │   ├── app_modbus.c   # Modbus RTU 从机
-│   │   ├── app_mqtt.c     # MQTT 客户端
-│   │   ├── app_ui.c       # LCD 显示
-│   │   └── ...
-│   ├── Drivers/           # HAL + BSP
-│   ├── Middlewares/       # FreeRTOS
-│   └── Projects/MDK-ARM/  # Keil 工程
+│   │   ├── app_acq.c      # 数据采集调度       
+│   │   ├── app_soc.c      # SOC 估算           
+│   │   ├── app_protect.c  # 保护判据           
+│   │   ├── app_alarm.c    # 告警管理           
+│   │   ├── app_modbus.c   # Modbus RTU 从机    
+│   │   ├── app_mqtt.c     # MQTT 客户端        
+│   │   ├── app_ui.c       # LCD 显示           
+│   │   └── ...                                 
+│   ├── Drivers/           # HAL + BSP          
+│   ├── Middlewares/       # FreeRTOS           
+│   └── Projects/MDK-ARM/  # Keil 工程          
 ├── tools/                 # 门禁脚本 + 取证工具
-├── PRD.md                 # 产品需求
-├── Tech_Design.md         # 技术设计
-└── 验收执行清单.md         # 验收流程
+├── PRD.md                 # 产品需求           
+├── Tech_Design.md         # 技术设计           
+└── 验收执行清单.md         # 验收流程          
 ```
 
 ## 快速开始
