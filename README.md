@@ -1,42 +1,91 @@
 # BMS 磷酸铁锂监测终端
 
-![License](https://img.shields.io/badge/license-MIT-green) ![Language](https://img.shields.io/badge/language-C-555555) ![Platform](https://img.shields.io/badge/platform-STM32F103ZET6-blue) ![RTOS](https://img.shields.io/badge/RTOS-FreeRTOS-orange)
+![License](https://img.shields.io/badge/license-MIT-green) ![Language](https://img.shields.io/badge/language-C-555555) ![Platform](https://img.shields.io/badge/platform-STM32F103ZET6-blue) ![RTOS](https://img.shields.io/badge/RTOS-FreeRTOS-orange) ![Build](https://img.shields.io/badge/build-0%20Error-brightgreen)
 
-基于 STM32F103ZET6 + FreeRTOS 的 4S 磷酸铁锂电池组监测终端，实现电压/电流/温度采集、SOC 估算、
-充放电保护、告警上报与本地显示。
+基于 **STM32F103ZET6 + FreeRTOS** 的 4S 磷酸铁锂电池组监测终端，实现电压/电流/温度采集、SOC 估算、充放电保护、告警上报与本地显示。
 
-## 特性
+## 功能特性
 
-- **全静态内存分配**：`configSUPPORT_DYNAMIC_ALLOCATION=0`，链接级强制，无堆碎片风险
-- **SOC 估算**：安时积分 + 开路电压校正
-- **保护判据**：过压/欠压/过流/过温/低温五重保护，看门狗独立喂狗收口
-- **通信接口**：Modbus RTU 从机 + OneNET MQTT 上报
-- **本地显示**：LCD 状态/告警界面
-- **机械门禁**：9 条 grep 规则静态检查（`gate_check.sh`）
+- 🔋 **全静态内存分配**：`configSUPPORT_DYNAMIC_ALLOCATION=0` 链接级强制，无堆碎片风险
+- 📊 **SOC 估算**：安时积分 + 开路电压校正，双模互补
+- 🛡️ **五重保护**：过压 / 欠压 / 过流 / 过温 / 低温，看门狗独立喂狗收口
+- 📡 **双通信**：Modbus RTU 从机（RS485）+ OneNET MQTT 上报（ESP8266）
+- 🖥️ **本地显示**：LCD 实时状态 / 告警界面
+- ✅ **机械门禁**：9 条 grep 规则静态检查（`gate_check.sh`），0 违规才放行
 
-## 硬件
+## 系统架构
 
-| 外设 | 说明 |
-|------|------|
-| MCU | STM32F103ZET6 |
-| AFE | 电池模拟前端采样板 |
-| 显示 | LCD |
-| 通信 | RS485 (Modbus) + ESP8266 (MQTT) |
+```text
+AFE 采样板 → ADC 多通道采集 → app_acq → SOC 估算(app_soc) → 保护判据(app_protect)
+                                    ↓                              ↓
+                              app_data → app_ui(LCD)         app_alarm → 蜂鸣器/告警帧
+                                    ↓
+                        ┌───────────┼───────────┐
+                        ↓           ↓           ↓
+                   app_modbus   app_mqtt    app_log
+                   (RS485从机)  (OneNET)   (FLASH历史)
+```
 
-## 构建
+## 项目结构
+
+```
+bms-monitor/
+├── firmware/
+│   ├── User/App/          # 应用层（17 个模块）
+│   │   ├── app_acq.c      # 数据采集调度
+│   │   ├── app_soc.c      # SOC 估算
+│   │   ├── app_protect.c  # 保护判据
+│   │   ├── app_alarm.c    # 告警管理
+│   │   ├── app_modbus.c   # Modbus RTU 从机
+│   │   ├── app_mqtt.c     # MQTT 客户端
+│   │   ├── app_ui.c       # LCD 显示
+│   │   └── ...
+│   ├── Drivers/           # HAL + BSP
+│   ├── Middlewares/       # FreeRTOS
+│   └── Projects/MDK-ARM/  # Keil 工程
+├── tools/                 # 门禁脚本 + 取证工具
+├── PRD.md                 # 产品需求
+├── Tech_Design.md         # 技术设计
+└── 验收执行清单.md         # 验收流程
+```
+
+## 快速开始
 
 ```bash
-# Keil MDK-ARM
+# 构建固件（Keil MDK-ARM）
+cd firmware/Projects/MDK-ARM
 UV4.exe -r bms.uvprojx -j0 -o build.log
+
+# 运行静态门禁检查
+bash tools/gate_check.sh
 ```
+
+## 资源占用（实测）
+
+| 项 | 值 | 占比 |
+|---|---|---|
+| Flash | 87036 B (85.0 KB) | 512 KB 的 **16.6%** |
+| RAM | 24104 B (23.5 KB) | 64 KB 的 **36.8%** |
+
+## 硬件平台
+
+| 外设 | 型号/接口 | 说明 |
+|------|-----------|------|
+| MCU | STM32F103ZET6 | 主控 |
+| AFE | 电池模拟前端采样板 | 电压/电流/温度采集 |
+| 显示 | LCD | 状态/告警界面 |
+| 通信 | RS485 + ESP8266 | Modbus RTU + MQTT |
+| RTOS | FreeRTOS V10.4.6 | 全静态分配 |
 
 ## 文档
 
-- `PRD.md` - 产品需求
-- `Tech_Design.md` - 技术设计
-- `验收执行清单.md` - 验收流程
-- `Build.md` - 构建记录
+| 文档 | 说明 |
+|------|------|
+| [PRD.md](PRD.md) | 产品需求文档 |
+| [Tech_Design.md](Tech_Design.md) | 技术设计方案 |
+| [验收执行清单.md](验收执行清单.md) | 验收流程与记录 |
+| [Build.md](Build.md) | 构建与版本记录 |
 
 ## 许可证
 
-MIT License
+[MIT License](LICENSE) © y0u41
