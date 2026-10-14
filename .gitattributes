@@ -1,0 +1,45 @@
+# 依据 = 附录C C-147 / 清单 §7 债 #83：本机 core.autocrlf = true，
+# 全新 clone 会把 firmware/Tools/gate_check.sh 检出成 CRLF ⇒ 验收工具当场失效。
+# 本文件只钉换行符，不改任何 git config。
+
+* text=auto eol=lf
+
+# 验收与构建脚本必须是 LF
+*.sh    text eol=lf
+*.py    text eol=lf
+
+# Windows 侧脚本保持 CRLF
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# 构建产物与文档按文本存 LF
+*.md    text eol=lf
+*.hex   text eol=lf
+*.sct   text eol=lf
+*.map   text eol=lf
+*.lst   text eol=lf
+*.ini   text eol=lf
+*.ioc   text eol=lf
+
+# 二进制：⛔ 任何换行转换
+*.pptx  binary
+*.xlsx  binary
+*.doc   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.png   binary
+*.jpg   binary
+*.bmp   binary
+*.gif   binary
+*.ico   binary
+*.bin   binary
+*.elf   binary
+*.axf   binary
+*.o     binary
+*.a     binary
+*.lib   binary
+*.exe   binary
+*.dll   binary
+*.ttf   binary
+*.otf   binary
