@@ -1,10 +1,80 @@
-# BMS 磷酸铁锂监测终端
+# 🔋 BMS 磷酸铁锂监测终端
 
 ![License](https://img.shields.io/badge/license-MIT-green) ![Language](https://img.shields.io/badge/language-C-555555) ![Platform](https://img.shields.io/badge/platform-STM32F103ZET6-blue) ![RTOS](https://img.shields.io/badge/RTOS-FreeRTOS-orange) ![Build](https://img.shields.io/badge/build-0%20Error-brightgreen)
 
-基于 **STM32F103ZET6 + FreeRTOS** 的 4S 磷酸铁锂电池组监测终端，实现电压/电流/温度采集、SOC 估算、充放电保护、告警上报与本地显示。
+> 基于 STM32 + FreeRTOS 的 4S 磷酸铁锂电池组监测终端，五重保护 + SOC 估算 ⚡
 
-## 功能特性
+## 这是什么？
+
+一个**工业级**的电池管理系统（BMS），实时监测 4S 磷酸铁锂电池组的电压/电流/温度，进行 SOC 估算和五重保护，支持 Modbus RTU 和 MQTT 双通信。
+
+**适合场景**：
+- 🔋 电池管理系统（BMS）学习
+- 📚 FreeRTOS 实战项目
+- 🛡️ 安全关键系统设计（保护机制）
+
+## ✨ 功能特性
+
+### 数据采集与估算
+- 📊 **SOC 估算**：安时积分 + 开路电压校正（双模互补）
+- 📈 **多通道采集**：电压/电流/温度实时监测
+
+### 五重保护
+- ⚡ 过压 / 欠压
+- 🔥 过流 / 过温 / 低温
+- 🐕 看门狗独立喂狗
+
+### 通信接口
+- 📡 **Modbus RTU**：RS485 从机
+- ☁️ **MQTT**：ESP8266 上报 OneNET
+
+### 工程特性
+- 🔒 **全静态内存**：无堆碎片风险
+- ✅ **机械门禁**：9 条 grep 规则静态检查
+- 🖥 **LCD 显示**：实时状态 + 告警界面
+
+## 📁 目录结构
+
+```
+bms-monitor/
+├── firmware/
+│   ├── User/App/          # 应用层（17 个模块）
+│   │   ├── app_acq.c      # 数据采集
+│   │   ├── app_soc.c      # SOC 估算
+│   │   ├── app_protect.c  # 保护判据
+│   │   ├── app_modbus.c   # Modbus 从机
+│   │   └── app_mqtt.c     # MQTT 客户端
+│   ├── Drivers/           # HAL + BSP
+│   └── Middlewares/       # FreeRTOS
+├── tools/                 # 门禁脚本
+├── PRD.md                 # 产品需求
+└── Tech_Design.md         # 技术设计
+```
+
+## 🚀 快速开始
+
+```bash
+# 构建固件
+cd firmware/Projects/MDK-ARM
+UV4.exe -r bms.uvprojx -j0 -o build.log
+
+# 运行静态门禁检查
+bash tools/gate_check.sh
+```
+
+**构建状态**：0 Error / 0 Warning
+
+## 📚 文档
+
+| 文档 | 内容 |
+|------|------|
+| [PRD.md](PRD.md) | 产品需求文档 |
+| [Tech_Design.md](Tech_Design.md) | 技术设计与架构 |
+| [验收执行清单.md](验收执行清单.md) | 验收流程 |
+
+## 📄 许可证
+
+[MIT License](LICENSE) © y0u41
 
 - 🔋 **全静态内存分配**：`configSUPPORT_DYNAMIC_ALLOCATION=0` 链接级强制，无堆碎片风险
 - 📊 **SOC 估算**：安时积分 + 开路电压校正，双模互补
