@@ -86,14 +86,14 @@ bash tools/gate_check.sh
 ## 系统架构
 
 ```text
-AFE 采样板 → ADC 多通道采集 → app_acq → SOC 估算(app_soc) → 保护判据(app_protect)
-                                    ↓                              ↓
+AFE 采样板 → ADC 多通道采集 → app_acq → SOC 估算(app_soc) → 保护判据(app_protect)     
+                                    ↓                              ↓                  
                               app_data → app_ui(LCD)         app_alarm → 蜂鸣器/告警帧
-                                    ↓
-                        ┌───────────┼───────────┐
-                        ↓           ↓           ↓
-                   app_modbus   app_mqtt    app_log
-                   (RS485从机)  (OneNET)   (FLASH历史)
+                                    ↓                                                 
+                        ┌───────────┼───────────                                     ┐
+                        ↓           ↓           ↓                                     
+                   app_modbus   app_mqtt    app_log                                   
+                   (RS485从机)  (OneNET)   (FLASH历史)                                
 ```
 
 ## 项目结构
